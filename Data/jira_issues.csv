@@ -1,0 +1,76 @@
+key,title,status,assignee,created,updated
+DEV-81,Write API documentation,To Do,Hirthik Balaji C,2026-03-11T06:30:37.483+0000,2026-03-11T07:34:52.734+0000
+DEV-80,Fix memory leak in worker process,To Do,LapTop,2026-03-11T06:30:36.417+0000,2026-03-11T07:17:38.071+0000
+DEV-79,Implement authentication module,To Do,Anandhappriya,2026-03-11T06:30:35.193+0000,2026-03-11T07:17:57.703+0000
+DEV-78,Improve test coverage,To Do,LapTop,2026-03-11T06:30:34.085+0000,2026-03-11T07:18:11.923+0000
+DEV-77,Reduce API latency,To Do,LapTop,2026-03-11T06:30:32.962+0000,2026-03-11T07:18:35.672+0000
+DEV-76,Improve logging pipeline,To Do,Anandhappriya,2026-03-11T06:30:31.760+0000,2026-03-11T07:18:46.888+0000
+DEV-75,Resolve login redirect bug,To Do,LapTop,2026-03-11T06:30:30.666+0000,2026-03-11T07:19:03.856+0000
+DEV-74,Write API documentation,To Do,Hirthik Balaji C,2026-03-11T06:30:29.432+0000,2026-03-11T07:19:28.331+0000
+DEV-73,Improve test coverage,To Do,Hirthik Balaji C,2026-03-11T06:30:27.976+0000,2026-03-11T07:19:56.096+0000
+DEV-72,Fix API timeout bug,To Do,LapTop,2026-03-11T06:30:26.713+0000,2026-03-11T07:20:22.338+0000
+DEV-71,Fix memory leak in worker process,To Do,Anandhappriya,2026-03-11T06:30:25.549+0000,2026-03-11T07:20:36.428+0000
+DEV-70,Refactor service architecture,To Do,Hirthik Balaji C,2026-03-11T06:30:24.339+0000,2026-03-11T07:20:53.822+0000
+DEV-69,Add analytics API endpoint,To Do,LapTop,2026-03-11T06:30:23.232+0000,2026-03-11T07:21:18.343+0000
+DEV-68,Improve caching strategy,To Do,Anandhappriya,2026-03-11T06:30:21.922+0000,2026-03-11T07:21:36.113+0000
+DEV-67,Write API documentation,To Do,Hirthik Balaji C,2026-03-11T06:30:20.992+0000,2026-03-11T07:21:53.267+0000
+DEV-66,Improve logging pipeline,To Do,Hirthik Balaji C,2026-03-11T06:30:19.919+0000,2026-03-11T07:22:16.493+0000
+DEV-65,Resolve login redirect bug,To Do,Hirthik Balaji C,2026-03-11T06:30:18.799+0000,2026-03-11T07:22:36.065+0000
+DEV-64,Write API documentation,To Do,Hirthik Balaji C,2026-03-11T06:30:17.830+0000,2026-03-11T07:22:53.456+0000
+DEV-63,Refactor service architecture,To Do,LapTop,2026-03-11T06:30:16.665+0000,2026-03-11T07:23:01.499+0000
+DEV-62,Optimize database queries,To Do,Anandhappriya,2026-03-11T06:30:15.478+0000,2026-03-11T07:23:16.614+0000
+DEV-61,Add analytics API endpoint,To Do,LapTop,2026-03-11T06:30:14.413+0000,2026-03-11T07:23:31.586+0000
+DEV-60,Resolve login redirect bug,To Do,Anandhappriya,2026-03-11T06:30:13.307+0000,2026-03-11T07:23:43.579+0000
+DEV-59,Improve caching strategy,To Do,Hirthik Balaji C,2026-03-11T06:30:12.254+0000,2026-03-11T07:24:00.182+0000
+DEV-58,Add monitoring alerts,To Do,HAcker,2026-03-11T06:30:10.869+0000,2026-03-11T07:24:18.786+0000
+DEV-57,Add monitoring alerts,To Do,LapTop,2026-03-11T06:30:09.440+0000,2026-03-11T07:24:41.123+0000
+DEV-56,Add analytics API endpoint,To Do,Anandhappriya,2026-03-11T06:30:08.071+0000,2026-03-11T07:25:05.783+0000
+DEV-55,Add monitoring alerts,To Do,HAcker,2026-03-11T06:30:07.044+0000,2026-03-11T07:25:20.807+0000
+DEV-54,Improve test coverage,To Do,HAcker,2026-03-11T06:30:06.104+0000,2026-03-11T07:25:31.301+0000
+DEV-53,Refactor service architecture,To Do,HAcker,2026-03-11T06:30:05.137+0000,2026-03-11T07:25:41.474+0000
+DEV-52,Fix memory leak in worker process,To Do,HAcker,2026-03-11T06:30:03.905+0000,2026-03-11T07:25:54.410+0000
+DEV-51,Fix API timeout bug,To Do,LapTop,2026-03-11T06:30:02.753+0000,2026-03-11T07:26:19.577+0000
+DEV-50,Add monitoring alerts,To Do,Anandhappriya,2026-03-11T06:30:01.529+0000,2026-03-11T07:26:43.360+0000
+DEV-49,Cleanup deprecated functions,To Do,Anandhappriya,2026-03-11T06:30:00.454+0000,2026-03-11T07:26:54.264+0000
+DEV-48,Resolve login redirect bug,To Do,Anandhappriya,2026-03-11T06:29:59.378+0000,2026-03-11T06:29:59.424+0000
+DEV-47,Add monitoring alerts,To Do,LapTop,2026-03-11T06:29:58.262+0000,2026-03-11T06:29:58.355+0000
+DEV-46,Refactor service architecture,To Do,LapTop,2026-03-11T06:29:57.306+0000,2026-03-11T06:29:57.367+0000
+DEV-45,Fix API timeout bug,To Do,Anandhappriya,2026-03-11T06:29:56.118+0000,2026-03-11T06:29:56.216+0000
+DEV-44,Improve logging pipeline,To Do,LapTop,2026-03-11T06:29:54.755+0000,2026-03-11T06:29:54.842+0000
+DEV-43,Improve logging pipeline,To Do,Anandhappriya,2026-03-11T06:29:53.683+0000,2026-03-11T06:29:53.748+0000
+DEV-42,Improve test coverage,To Do,Anandhappriya,2026-03-11T06:29:52.581+0000,2026-03-11T06:29:52.666+0000
+DEV-41,Add monitoring alerts,To Do,LapTop,2026-03-11T06:25:38.531+0000,2026-03-11T06:25:38.617+0000
+DEV-40,Improve logging pipeline,To Do,Automation for Jira,2026-03-11T06:25:37.414+0000,2026-03-11T06:25:37.481+0000
+DEV-39,Improve caching strategy,To Do,Slack,2026-03-11T06:25:35.968+0000,2026-03-11T06:25:36.071+0000
+DEV-38,Write API documentation,To Do,Slack,2026-03-11T06:25:34.877+0000,2026-03-11T06:25:34.968+0000
+DEV-37,Fix API timeout bug,To Do,Jira Outlook,2026-03-11T06:25:33.646+0000,2026-03-11T06:25:33.698+0000
+DEV-36,Optimize database queries,To Do,Automation for Jira,2026-03-11T06:25:32.630+0000,2026-03-11T06:25:32.697+0000
+DEV-35,Cleanup deprecated functions,To Do,Jira Service Management Widget,2026-03-11T06:25:31.648+0000,2026-03-11T06:25:31.704+0000
+DEV-34,Write API documentation,To Do,Automation for Jira,2026-03-11T06:25:30.626+0000,2026-03-11T06:25:30.684+0000
+DEV-33,Optimize database queries,To Do,Microsoft Teams for Jira Cloud,2026-03-11T06:25:29.558+0000,2026-03-11T06:25:29.645+0000
+DEV-32,Fix memory leak in worker process,To Do,GitHub (production),2026-03-11T06:25:27.624+0000,2026-03-11T06:25:27.722+0000
+DEV-31,Improve test coverage,To Do,Slack,2026-03-11T06:25:26.540+0000,2026-03-11T06:25:26.596+0000
+DEV-30,Reduce API latency,To Do,GitHub (production),2026-03-11T06:25:25.462+0000,2026-03-11T06:25:25.546+0000
+DEV-29,Add analytics API endpoint,To Do,Hirthik Balaji C,2026-03-11T06:25:24.183+0000,2026-03-11T06:25:24.269+0000
+DEV-28,Improve test coverage,To Do,Statuspage for Jira,2026-03-11T06:25:22.397+0000,2026-03-11T06:25:22.475+0000
+DEV-27,Resolve login redirect bug,To Do,Jira Outlook,2026-03-11T06:25:21.253+0000,2026-03-11T06:25:21.335+0000
+DEV-26,Improve test coverage,To Do,LapTop,2026-03-11T06:25:20.004+0000,2026-03-11T06:25:20.109+0000
+DEV-25,Write API documentation,To Do,GitHub (production),2026-03-11T06:25:17.613+0000,2026-03-11T06:25:17.665+0000
+DEV-24,Reduce API latency,To Do,Anandhappriya,2026-03-11T06:25:16.484+0000,2026-03-11T06:25:16.560+0000
+DEV-23,Fix memory leak in worker process,To Do,Hirthik Balaji C,2026-03-11T06:25:15.089+0000,2026-03-11T06:25:15.186+0000
+DEV-22,Write API documentation,To Do,Atlas for Jira Cloud,2026-03-11T06:25:13.240+0000,2026-03-11T06:25:13.321+0000
+DEV-21,Write API documentation,To Do,LapTop,2026-03-11T06:25:12.159+0000,2026-03-11T06:25:12.256+0000
+DEV-20,Write API documentation,To Do,LapTop,2026-03-11T06:25:11.099+0000,2026-03-11T06:25:11.156+0000
+DEV-19,Fix API timeout bug,To Do,Jira Spreadsheets,2026-03-11T06:25:09.960+0000,2026-03-11T06:25:10.062+0000
+DEV-18,Fix API timeout bug,To Do,Atlassian Assist,2026-03-11T06:25:08.736+0000,2026-03-11T06:25:08.825+0000
+DEV-17,Reduce API latency,To Do,Jira Spreadsheets,2026-03-11T06:25:07.610+0000,2026-03-11T06:25:07.675+0000
+DEV-14,Improve test coverage,To Do,Anandhappriya,2026-03-11T06:25:03.273+0000,2026-03-11T06:25:03.346+0000
+DEV-12,Resolve login redirect bug,To Do,HAcker,2026-03-11T06:25:00.301+0000,2026-03-11T06:25:00.356+0000
+DEV-8,Generate RealData to simulate fake workflows vs real workflows,In Progress,Anandhappriya,2026-03-11T06:03:18.157+0000,2026-03-11T06:13:30.989+0000
+DEV-7,Draft a Presentation to present to judges,To Do,Hirthik Balaji C,2026-03-11T06:01:31.040+0000,2026-03-11T06:02:31.077+0000
+DEV-6,Add work to tracking tool,Done,Hirthik Balaji C,2026-03-10T21:57:22.635+0000,2026-03-10T21:57:24.048+0000
+DEV-5,Prepare demonstration of WCIM features,To Do,HAcker,2026-03-10T21:57:22.467+0000,2026-03-10T22:07:02.089+0000
+DEV-4,Verify WCIM functionality against hackathon goals,To Do,Hirthik Balaji C,2026-03-10T21:57:22.307+0000,2026-03-10T22:01:39.825+0000
+DEV-3,Implement core logic for WCIM requirements,To Do,LapTop,2026-03-10T21:57:22.133+0000,2026-03-10T22:08:25.883+0000
+DEV-2,Set up development environment for hackathon project,In Progress,HAcker,2026-03-10T21:57:21.968+0000,2026-03-10T22:06:58.483+0000
+DEV-1,Define technical architecture for the WCIM solution,In Progress,Anandhappriya,2026-03-10T21:57:21.752+0000,2026-03-10T22:02:10.093+0000
