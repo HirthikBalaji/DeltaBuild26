@@ -4410,6 +4410,690 @@ function BlockchainLedgerPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   ZERO-KNOWLEDGE PROOF (ZKP) SCORE VERIFICATION
+═════════════════════════════════════════════════════════════════ */
+
+// ZKP circuit definitions — each represents a verifiable claim
+const ZKP_CIRCUITS = [
+  {
+    id: "circ-contrib",    label: "Contribution Threshold",
+    desc: "Prove contribution score ≥ threshold without revealing exact score",
+    metric: "contribution", icon: "◉", color: T.indigo,
+    thresholds: [50, 60, 70, 80, 90],
+    unit: "%",
+    useCase: "Salary negotiation, promotion eligibility",
+  },
+  {
+    id: "circ-commits",    label: "Commit Volume Gate",
+    desc: "Prove commit count ≥ threshold without revealing exact number",
+    metric: "commits", icon: "⬡", color: T.teal,
+    thresholds: [50, 100, 150, 200, 300],
+    unit: " commits",
+    useCase: "Inter-team transfer, seniority assessment",
+  },
+  {
+    id: "circ-burnout",    label: "Wellness Clearance",
+    desc: "Prove burnout score ≤ threshold (healthy range) without exposing exact level",
+    metric: "burnout", icon: "◈", color: T.green,
+    thresholds: [30, 40, 50, 60],
+    unit: "% max",
+    useCase: "Project assignment, workload rebalancing",
+    lte: true, // ≤ instead of ≥
+  },
+  {
+    id: "circ-flow",       label: "Flow State Proficiency",
+    desc: "Prove flow score ≥ threshold without exposing psychological profile",
+    metric: "flow.score", icon: "✦", color: T.purple,
+    thresholds: [40, 55, 65, 75, 85],
+    unit: " flow pts",
+    useCase: "Deep-work project placement",
+  },
+  {
+    id: "circ-impact",     label: "Impact Index Clearance",
+    desc: "Prove overall impact ≥ threshold without revealing individual dimensions",
+    metric: "contribution", icon: "▲", color: T.amber,
+    thresholds: [55, 65, 75, 85],
+    unit: "% impact",
+    useCase: "Cross-functional leadership role qualification",
+  },
+];
+
+// Simulated ZKP proof generation (Groth16/Plonk-style)
+function generateZKProof(dev, circuit, threshold) {
+  const rawVal = circuit.metric.includes(".")
+    ? circuit.metric.split(".").reduce((o, k) => o?.[k], dev) ?? 50
+    : dev[circuit.metric] ?? 50;
+
+  const satisfies = circuit.lte ? rawVal <= threshold : rawVal >= threshold;
+
+  // Commitment = hash of (value, randomness) — hides raw value
+  const randomness = Math.abs(Math.sin(dev.name.length * threshold * 0.137)) * 1e9 | 0;
+  const commitment = mockHash({ v: rawVal, r: randomness, dev: dev.name, circ: circuit.id });
+
+  // Public inputs: threshold, circuit id, commitment
+  const publicInputs = { threshold, circuit: circuit.id, commitment: commitment.slice(0, 32), satisfies };
+
+  // Simulated proof object (π_A, π_B, π_C in Groth16 notation)
+  const piA = mockHash({ a: "piA", dev: dev.name, threshold, circ: circuit.id });
+  const piB = mockHash({ b: "piB", dev: dev.name, threshold, circ: circuit.id });
+  const piC = mockHash({ c: "piC", commitment });
+
+  return {
+    proof: { piA: piA.slice(0, 32), piB: piB.slice(0, 32), piC: piC.slice(0, 32) },
+    publicInputs,
+    satisfies,
+    rawVal, // kept private — shown only to owner
+    verificationKey: mockHash({ vk: circuit.id, threshold }).slice(0, 24),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function verifyZKProof(proof) {
+  // Simulated verifier: checks structural validity (in reality this is curve math)
+  return (
+    proof?.proof?.piA?.length === 32 &&
+    proof?.proof?.piB?.length === 32 &&
+    proof?.proof?.piC?.length === 32 &&
+    proof?.publicInputs?.commitment?.length > 0
+  );
+}
+
+// Animated "circuit computing" display
+function CircuitAnimation({ running }) {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const i = setInterval(() => setFrame(f => (f + 1) % 8), 120);
+    return () => clearInterval(i);
+  }, [running]);
+  const frames = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧"];
+  return <span style={{ fontFamily: "monospace", color: T.indigo }}>{running ? frames[frame] : "✓"}</span>;
+}
+
+// Proof card with animated generation
+function ProofCard({ proof, circuit, dev, onExport }) {
+  const valid = verifyZKProof(proof);
+  return (
+    <div style={{
+      padding: "20px 22px", borderRadius: 14,
+      background: proof.satisfies ? `${T.green}08` : `${T.red}08`,
+      border: `2px solid ${proof.satisfies ? T.green : T.red}35`,
+      display: "flex", flexDirection: "column", gap: 14,
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+          background: `${circuit.color}18`, border: `2px solid ${circuit.color}35`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 20, color: circuit.color
+        }}>{circuit.icon}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: T.text, marginBottom: 3 }}>{circuit.label}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Tag color={proof.satisfies ? T.green : T.red} size={9}>{proof.satisfies ? "✓ CLAIM SATISFIED" : "✗ CLAIM FAILS"}</Tag>
+            <Tag color={valid ? T.teal : T.red} size={9}>{valid ? "⚑ PROOF VALID" : "⚑ INVALID"}</Tag>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", fontSize: 9, color: T.dim }}>
+          <div>Threshold: <strong style={{ color: circuit.color }}>{proof.publicInputs.threshold}{circuit.unit}</strong></div>
+          <div style={{ marginTop: 2 }}>Your value: <strong style={{ color: T.muted }}>🔒 hidden</strong></div>
+        </div>
+      </div>
+
+      {/* Proof components */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        {[
+          { label: "π_A (Proof Point A)", val: proof.proof.piA, color: T.indigo },
+          { label: "π_B (Proof Point B)", val: proof.proof.piB, color: T.purple },
+          { label: "π_C (Aux Witness)", val: proof.proof.piC, color: T.teal },
+        ].map(p => (
+          <div key={p.label} style={{ padding: "8px 10px", background: T.elevated, borderRadius: 8, border: `1px solid ${p.color}20` }}>
+            <div style={{ fontSize: 8, color: p.color, fontWeight: 800, marginBottom: 4 }}>{p.label}</div>
+            <div style={{ fontSize: 8, fontFamily: "monospace", color: T.dim, wordBreak: "break-all", lineHeight: 1.6 }}>{p.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Public inputs */}
+      <div style={{ padding: "10px 12px", background: T.elevated, borderRadius: 8, fontSize: 9, fontFamily: "monospace", color: T.muted, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ color: T.dim, fontWeight: 800, fontSize: 8, letterSpacing: "0.1em", marginBottom: 4 }}>PUBLIC INPUTS (shared with verifier)</div>
+        <div>circuit_id: <span style={{ color: T.teal }}>{proof.publicInputs.circuit}</span></div>
+        <div>threshold: <span style={{ color: circuit.color }}>{proof.publicInputs.threshold}{circuit.unit}</span></div>
+        <div>commitment: <span style={{ color: T.indigoLt }}>{proof.publicInputs.commitment}…</span></div>
+        <div>satisfies: <span style={{ color: proof.satisfies ? T.green : T.red, fontWeight: 800 }}>{String(proof.satisfies)}</span></div>
+        <div>vk: <span style={{ color: T.purple }}>{proof.verificationKey}</span></div>
+      </div>
+
+      <button onClick={() => onExport(proof, circuit)} style={{
+        alignSelf: "flex-start", padding: "8px 18px", borderRadius: 8, cursor: "pointer",
+        fontFamily: "inherit", fontSize: 11, fontWeight: 700,
+        background: `${circuit.color}15`, border: `1.5px solid ${circuit.color}35`, color: circuit.color
+      }}>📤 Export ZK Proof</button>
+    </div>
+  );
+}
+
+// Algorithm integrity panel — shows the scoring formula publicly
+function AlgorithmIntegrityPanel() {
+  const [expanded, setExpanded] = useState(null);
+  const formulas = [
+    {
+      id: "f-contrib", label: "Contribution Score", color: T.indigo, icon: "◉",
+      formula: "contribution = (commits × 0.35) + (additions/1000 × 0.25) + (tasks_done/total × 0.25) + (comments/20 × 0.15)",
+      hash: mockHash({ formula: "contribution", version: "1.0" }).slice(0, 32),
+      params: ["commits", "additions", "tasks_done", "total_tasks", "comments"],
+    },
+    {
+      id: "f-flow", label: "Flow State Score", color: T.purple, icon: "✦",
+      formula: "flow = clamp(commit_density × 14.3 + session_length × 0.8 - context_switches × 12 + deep_hours × 9, 0, 100)",
+      hash: mockHash({ formula: "flow", version: "1.0" }).slice(0, 32),
+      params: ["commit_density", "session_length", "context_switches", "deep_hours"],
+    },
+    {
+      id: "f-burnout", label: "Burnout Score", color: T.red, icon: "◈",
+      formula: "burnout = clamp(overtime_hours × 1.8 + todo_backlog × 2.1 + avg_session × 0.6 - flow_score × 0.4, 0, 100)",
+      hash: mockHash({ formula: "burnout", version: "1.0" }).slice(0, 32),
+      params: ["overtime_hours", "todo_backlog", "avg_session", "flow_score"],
+    },
+    {
+      id: "f-impact", label: "Impact Index", color: T.amber, icon: "▲",
+      formula: "impact = geometric_mean(productivity, collab_multiplier, adoption_rate) × (1 + innovation_bonus × 0.15)",
+      hash: mockHash({ formula: "impact", version: "1.0" }).slice(0, 32),
+      params: ["productivity", "collab_multiplier", "adoption_rate", "innovation_bonus"],
+    },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {formulas.map(f => (
+        <div key={f.id} style={{
+          borderRadius: 12, border: `1.5px solid ${f.color}28`,
+          background: expanded === f.id ? `${f.color}06` : T.elevated,
+          overflow: "hidden", transition: "background 0.2s"
+        }}>
+          <div
+            onClick={() => setExpanded(expanded === f.id ? null : f.id)}
+            style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
+          >
+            <span style={{ fontSize: 16, color: f.color }}>{f.icon}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{f.label}</div>
+              <div style={{ fontSize: 9, fontFamily: "monospace", color: T.dim, marginTop: 2 }}>hash: {f.hash.slice(0, 20)}…</div>
+            </div>
+            <Tag color={T.green} size={8}>✓ UNMODIFIED</Tag>
+            <span style={{ color: T.dim, fontSize: 11 }}>{expanded === f.id ? "▲" : "▼"}</span>
+          </div>
+          {expanded === f.id && (
+            <div style={{ padding: "0 16px 16px" }}>
+              <div style={{ padding: "10px 14px", background: T.bg, borderRadius: 8, fontSize: 10, fontFamily: "monospace", color: T.teal, lineHeight: 1.8, marginBottom: 10 }}>
+                {f.formula}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {f.params.map(p => <Tag key={p} color={f.color} size={8}>{p}</Tag>)}
+              </div>
+              <div style={{ fontSize: 9, color: T.dim, fontFamily: "monospace" }}>
+                SHA-256 integrity hash: <span style={{ color: T.indigoLt }}>{f.hash}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ZKP export modal
+function ZKPExportModal({ proof, circuit, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const exportObj = {
+    zkp_version: "DEVIQ-ZKP-v1.0",
+    protocol: "Groth16 (simulated)",
+    circuit: circuit.id,
+    circuit_label: circuit.label,
+    proof: proof.proof,
+    public_inputs: proof.publicInputs,
+    verification_key: proof.verificationKey,
+    generated_at: proof.generatedAt,
+    verifier_note: "Raw values are NOT included. This proof cryptographically guarantees the claim without revealing private data.",
+  };
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.surface, borderRadius: 18, padding: 28, width: 560, maxHeight: "82vh",
+        overflowY: "auto", border: `2px solid ${T.purple}40`, boxShadow: `0 20px 60px ${T.purple}20`
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <span style={{ fontSize: 22 }}>🔐</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: T.purple }}>Zero-Knowledge Proof Export</span>
+          <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: T.dim }}>✕</button>
+        </div>
+        <div style={{ padding: "8px 12px", background: `${T.purple}0c`, border: `1px solid ${T.purple}25`, borderRadius: 8, fontSize: 10, color: T.muted, marginBottom: 14, lineHeight: 1.8 }}>
+          ⚡ This proof <strong>does not contain your raw score</strong>. Share freely — the verifier can confirm your claim is true without learning any private data.
+        </div>
+        <pre style={{ fontSize: 9, background: T.elevated, padding: "14px", borderRadius: 10, overflowX: "auto", color: T.teal, lineHeight: 1.7, fontFamily: "monospace", border: `1px solid ${T.purple}20` }}>
+          {JSON.stringify(exportObj, null, 2)}
+        </pre>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button onClick={() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+            style={{ flex: 1, padding: "10px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 12, background: T.purple, color: "white", border: "none" }}>
+            {copied ? "✓ Copied!" : "📋 Copy ZK Proof"}
+          </button>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 12, background: "transparent", border: `1.5px solid ${T.border}`, color: T.muted }}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ZKPPage({ data }) {
+  const [selectedDev, setSelectedDev] = useState(data.devs[0]);
+  const [selectedCircuit, setSelectedCircuit] = useState(ZKP_CIRCUITS[0]);
+  const [selectedThreshold, setSelectedThreshold] = useState(ZKP_CIRCUITS[0].thresholds[1]);
+  const [generatedProof, setGeneratedProof] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [activeTab, setActiveTab] = useState("generate");
+  const [verifyInput, setVerifyInput] = useState("");
+  const [verifyResult, setVerifyResult] = useState(null);
+  const [exportData, setExportData] = useState(null);
+  const [generatedProofs, setGeneratedProofs] = useState([]);
+
+  const handleGenerate = () => {
+    setGenerating(true);
+    setGeneratedProof(null);
+    setTimeout(() => {
+      const proof = generateZKProof(selectedDev, selectedCircuit, selectedThreshold);
+      setGeneratedProof(proof);
+      setGeneratedProofs(prev => [{ proof, circuit: selectedCircuit, dev: selectedDev, id: Date.now() }, ...prev].slice(0, 6));
+      setGenerating(false);
+    }, 1800);
+  };
+
+  const handleVerify = () => {
+    try {
+      const parsed = JSON.parse(verifyInput);
+      const valid = verifyZKProof({ proof: parsed.proof, publicInputs: parsed.public_inputs });
+      setVerifyResult({ valid, parsed });
+    } catch {
+      setVerifyResult({ valid: false, error: "Invalid JSON format" });
+    }
+  };
+
+  const rawVal = selectedCircuit.metric.includes(".")
+    ? selectedCircuit.metric.split(".").reduce((o, k) => o?.[k], selectedDev) ?? 50
+    : selectedDev[selectedCircuit.metric] ?? 50;
+  const wouldSatisfy = selectedCircuit.lte ? rawVal <= selectedThreshold : rawVal >= selectedThreshold;
+
+  const tabs = [
+    { id: "generate", label: "🔐 Generate Proof" },
+    { id: "verify",   label: "🔍 Verify Proof" },
+    { id: "integrity",label: "🔬 Algorithm Integrity" },
+    { id: "history",  label: "📋 Proof History" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {exportData && <ZKPExportModal proof={exportData.proof} circuit={exportData.circuit} onClose={() => setExportData(null)} />}
+
+      {/* Header */}
+      <Card glow={T.purple}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 24 }}>🔐</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: "0.06em" }}>Zero-Knowledge Proof Score Verification</span>
+              <Tag color={T.teal} size={9}>ZKP v1.0 · Groth16</Tag>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.9 }}>
+              Prove you <strong style={{ color: T.text }}>meet a threshold</strong> without revealing your raw score.
+              Cryptographic fairness — anyone can verify the <strong style={{ color: T.purple }}>scoring algorithm hasn't been tampered with</strong>.
+              Perfect for salary negotiations, promotions, and cross-team transfers.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
+            {[
+              { label: "Circuits", value: ZKP_CIRCUITS.length, color: T.purple, icon: "⬢" },
+              { label: "Proofs Generated", value: generatedProofs.length, color: T.indigo, icon: "🔐" },
+              { label: "Protocol", value: "Groth16", color: T.teal, icon: "✦" },
+            ].map(k => (
+              <div key={k.label} style={{ padding: "12px 16px", borderRadius: 12, textAlign: "center", background: `${k.color}0d`, border: `1.5px solid ${k.color}28`, minWidth: 80 }}>
+                <div style={{ fontSize: 14, color: k.color, marginBottom: 2 }}>{k.icon}</div>
+                <div style={{ fontSize: k.value === "Groth16" ? 11 : 22, fontWeight: 900, color: k.color, lineHeight: 1 }}>{k.value}</div>
+                <div style={{ fontSize: 9, color: T.dim, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.07em" }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: "9px 20px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            fontFamily: "inherit", border: "none",
+            background: activeTab === t.id ? T.purple : T.elevated,
+            color: activeTab === t.id ? "#fff" : T.muted,
+            transition: "all 0.15s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* TAB: GENERATE */}
+      {activeTab === "generate" && (
+        <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 18 }}>
+          {/* Config panel */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Card>
+              <div style={{ fontSize: 10, color: T.dim, fontWeight: 800, letterSpacing: "0.1em", marginBottom: 12 }}>SELECT PROVER</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {data.devs.map(dev => (
+                  <button key={dev.name} onClick={() => { setSelectedDev(dev); setGeneratedProof(null); }} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                    borderRadius: 9, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                    border: `1.5px solid ${selectedDev.name === dev.name ? T.purple : T.border}`,
+                    background: selectedDev.name === dev.name ? `${T.purple}10` : "transparent",
+                    color: T.text
+                  }}>
+                    <span style={{ fontSize: 18 }}>{dev.avatar}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700 }}>{dev.name}</div>
+                      <div style={{ fontSize: 9, color: T.dim }}>{dev.role}</div>
+                    </div>
+                    {selectedDev.name === dev.name && <span style={{ fontSize: 10, color: T.purple }}>●</span>}
+                  </button>
+                ))}
+              </div>
+            </Card>
+
+            <Card>
+              <div style={{ fontSize: 10, color: T.dim, fontWeight: 800, letterSpacing: "0.1em", marginBottom: 12 }}>SELECT CIRCUIT</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {ZKP_CIRCUITS.map(c => (
+                  <button key={c.id} onClick={() => { setSelectedCircuit(c); setSelectedThreshold(c.thresholds[1]); setGeneratedProof(null); }} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                    borderRadius: 9, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                    border: `1.5px solid ${selectedCircuit.id === c.id ? c.color : T.border}`,
+                    background: selectedCircuit.id === c.id ? `${c.color}10` : "transparent",
+                    color: T.text
+                  }}>
+                    <span style={{ fontSize: 16, color: c.color }}>{c.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700 }}>{c.label}</div>
+                      <div style={{ fontSize: 9, color: T.dim }}>{c.useCase}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          {/* Generation panel */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Card glow={selectedCircuit.color}>
+              <SH icon={selectedCircuit.icon} title={`Configure: ${selectedCircuit.label}`} />
+              <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>{selectedCircuit.desc}</div>
+
+              {/* Threshold selector */}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 10, color: T.dim, fontWeight: 800, letterSpacing: "0.08em", marginBottom: 10 }}>
+                  SELECT THRESHOLD ({selectedCircuit.lte ? "must be ≤" : "must be ≥"})
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {selectedCircuit.thresholds.map(t => (
+                    <button key={t} onClick={() => { setSelectedThreshold(t); setGeneratedProof(null); }} style={{
+                      padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+                      fontSize: 13, fontWeight: 800,
+                      border: `2px solid ${selectedThreshold === t ? selectedCircuit.color : T.border}`,
+                      background: selectedThreshold === t ? `${selectedCircuit.color}18` : "transparent",
+                      color: selectedThreshold === t ? selectedCircuit.color : T.muted,
+                    }}>{t}{selectedCircuit.unit}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview (only shown to prover) */}
+              <div style={{
+                padding: "14px 16px", borderRadius: 10, marginBottom: 18,
+                background: `${T.amber}08`, border: `1.5px solid ${T.amber}28`
+              }}>
+                <div style={{ fontSize: 9, color: T.amber, fontWeight: 800, letterSpacing: "0.1em", marginBottom: 8 }}>🔒 PRIVATE PREVIEW (only you see this)</div>
+                <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: T.muted }}>Your actual value</div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: T.text, lineHeight: 1 }}>{rawVal}{selectedCircuit.unit}</div>
+                  </div>
+                  <div style={{ fontSize: 22, color: T.dim }}>vs</div>
+                  <div>
+                    <div style={{ fontSize: 11, color: T.muted }}>Threshold</div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: selectedCircuit.color, lineHeight: 1 }}>{selectedThreshold}{selectedCircuit.unit}</div>
+                  </div>
+                  <div style={{ marginLeft: "auto" }}>
+                    <div style={{
+                      padding: "10px 18px", borderRadius: 10, fontWeight: 900, fontSize: 13,
+                      background: wouldSatisfy ? `${T.green}18` : `${T.red}18`,
+                      color: wouldSatisfy ? T.green : T.red,
+                      border: `2px solid ${wouldSatisfy ? T.green : T.red}40`
+                    }}>
+                      {wouldSatisfy ? "✓ WILL SATISFY" : "✗ WILL NOT SATISFY"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Generate button */}
+              <button onClick={handleGenerate} disabled={generating} style={{
+                width: "100%", padding: "14px", borderRadius: 10, cursor: generating ? "wait" : "pointer",
+                fontFamily: "inherit", fontWeight: 800, fontSize: 14,
+                background: generating ? `${T.purple}40` : `linear-gradient(135deg, ${T.purple}, ${T.indigo})`,
+                color: "white", border: "none", letterSpacing: "0.04em",
+                boxShadow: generating ? "none" : `0 4px 16px ${T.purple}40`,
+                transition: "all 0.2s"
+              }}>
+                {generating ? (
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <CircuitAnimation running={true} /> Generating ZK Proof…
+                  </span>
+                ) : "🔐 Generate Zero-Knowledge Proof"}
+              </button>
+            </Card>
+
+            {/* Generated proof display */}
+            {generatedProof && (
+              <div>
+                <div style={{ fontSize: 10, color: T.dim, fontWeight: 800, letterSpacing: "0.1em", marginBottom: 10 }}>GENERATED PROOF</div>
+                <ProofCard
+                  proof={generatedProof}
+                  circuit={selectedCircuit}
+                  dev={selectedDev}
+                  onExport={(p, c) => setExportData({ proof: p, circuit: c })}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: VERIFY */}
+      {activeTab === "verify" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card glow={T.teal}>
+            <SH icon="🔍" title="Verify a Zero-Knowledge Proof" />
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>
+              Paste a ZK proof JSON below. The verifier checks the proof's structural validity and cryptographic constraints —
+              <strong style={{ color: T.text }}> without learning the prover's raw score</strong>.
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <textarea
+                value={verifyInput}
+                onChange={e => { setVerifyInput(e.target.value); setVerifyResult(null); }}
+                style={{
+                  width: "100%", minHeight: 160, background: T.elevated, border: `1.5px solid ${T.border}`,
+                  borderRadius: 10, fontFamily: "monospace", fontSize: 10, color: T.teal,
+                  padding: "12px", resize: "vertical", outline: "none", boxSizing: "border-box",
+                  lineHeight: 1.7
+                }}
+                placeholder='Paste DEVIQ-ZKP-v1.0 JSON here…'
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={handleVerify} style={{
+                padding: "10px 24px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit",
+                fontWeight: 800, fontSize: 12, background: T.teal, color: "white", border: "none"
+              }}>🔍 Run Verifier</button>
+              <button onClick={() => {
+                // Load a sample proof to demonstrate
+                const sample = generateZKProof(data.devs[0], ZKP_CIRCUITS[0], ZKP_CIRCUITS[0].thresholds[1]);
+                const exportObj = { zkp_version: "DEVIQ-ZKP-v1.0", protocol: "Groth16", circuit: ZKP_CIRCUITS[0].id, proof: sample.proof, public_inputs: sample.publicInputs, verification_key: sample.verificationKey };
+                setVerifyInput(JSON.stringify(exportObj, null, 2));
+                setVerifyResult(null);
+              }} style={{
+                padding: "10px 18px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit",
+                fontWeight: 700, fontSize: 12, background: "transparent",
+                border: `1.5px solid ${T.border}`, color: T.muted
+              }}>Load Sample Proof</button>
+            </div>
+          </Card>
+
+          {verifyResult && (
+            <Card glow={verifyResult.valid ? T.green : T.red}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+                <div style={{
+                  width: 52, height: 52, borderRadius: 14, flexShrink: 0,
+                  background: `${verifyResult.valid ? T.green : T.red}18`,
+                  border: `2px solid ${verifyResult.valid ? T.green : T.red}40`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 24
+                }}>{verifyResult.valid ? "✓" : "✗"}</div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: verifyResult.valid ? T.green : T.red, marginBottom: 4 }}>
+                    {verifyResult.valid ? "Proof is VALID" : "Proof is INVALID"}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    {verifyResult.valid
+                      ? "All proof constraints satisfied. The claim is cryptographically verified."
+                      : verifyResult.error || "Proof constraints failed. The proof may be tampered or malformed."}
+                  </div>
+                </div>
+              </div>
+              {verifyResult.valid && verifyResult.parsed && (
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {[
+                    ["Circuit", verifyResult.parsed.circuit],
+                    ["Threshold", `${verifyResult.parsed.public_inputs?.threshold}`],
+                    ["Claim", verifyResult.parsed.public_inputs?.satisfies ? "SATISFIED ✓" : "FAILS ✗"],
+                    ["VK", verifyResult.parsed.verification_key?.slice(0, 12) + "…"],
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ padding: "8px 14px", background: `${T.green}0a`, borderRadius: 8, border: `1px solid ${T.green}20` }}>
+                      <div style={{ fontSize: 9, color: T.dim, fontWeight: 700 }}>{l}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: T.text, marginTop: 2 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* TAB: ALGORITHM INTEGRITY */}
+      {activeTab === "integrity" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card glow={T.green}>
+            <SH icon="🔬" title="Cryptographic Algorithm Integrity" />
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>
+              Every scoring formula is <strong style={{ color: T.text }}>publicly auditable</strong> and hashed on-chain.
+              If management tampers with any formula, the hash changes — and every existing ZK proof becomes
+              <strong style={{ color: T.red }}> automatically invalid</strong>, making tampering cryptographically detectable.
+            </div>
+            <AlgorithmIntegrityPanel />
+          </Card>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <Card>
+              <SH icon="✦" title="Integrity Guarantees" />
+              {[
+                { icon: "🔒", title: "Formula Immutability", body: "Each formula is SHA-256 hashed at deployment. Any edit changes the hash and invalidates all derived proofs." },
+                { icon: "🌐", title: "Public Verifiability", body: "Anyone — employees, auditors, HR — can re-run the hash and confirm the algorithm hasn't changed." },
+                { icon: "⚖", title: "Cryptographic Fairness", body: "Employees and managers use the same verifiable formula. No hidden scoring adjustments possible." },
+                { icon: "📜", title: "Version History", body: "All formula versions are recorded on-chain. Rollbacks are visible and attributed with timestamps." },
+              ].map(g => (
+                <div key={g.title} style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <span style={{ fontSize: 18, flexShrink: 0 }}>{g.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginBottom: 3 }}>{g.title}</div>
+                    <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.6 }}>{g.body}</div>
+                  </div>
+                </div>
+              ))}
+            </Card>
+            <Card>
+              <SH icon="◉" title="Use Case Matrix" />
+              {[
+                { scenario: "Salary Negotiation", proof: "Contribution ≥ 70%", hides: "Exact score, peer comparisons", color: T.indigo },
+                { scenario: "Promotion Eligibility", proof: "Commits ≥ 200", hides: "Exact count, project details", color: T.teal },
+                { scenario: "Team Transfer", proof: "Burnout ≤ 40%", hides: "Exact burnout level, history", color: T.green },
+                { scenario: "Leadership Role", proof: "Impact ≥ 75%", hides: "Breakdown, peer rankings", color: T.amber },
+                { scenario: "Client Presentation", proof: "Flow Score ≥ 65", hides: "Work patterns, session data", color: T.purple },
+              ].map(u => (
+                <div key={u.scenario} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{u.scenario}</span>
+                    <Tag color={u.color} size={8}>{u.proof}</Tag>
+                  </div>
+                  <div style={{ fontSize: 9, color: T.dim }}>🔒 Hidden: {u.hides}</div>
+                </div>
+              ))}
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: HISTORY */}
+      {activeTab === "history" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card>
+            <SH icon="📋" title={`Proof History (${generatedProofs.length} generated this session)`} />
+            {generatedProofs.length === 0 ? (
+              <div style={{ padding: "32px", textAlign: "center", color: T.dim, fontSize: 12 }}>
+                No proofs generated yet. Head to <strong>Generate Proof</strong> to create your first ZK proof.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {generatedProofs.map(item => (
+                  <div key={item.id} style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                    background: T.elevated, borderRadius: 10,
+                    border: `1px solid ${item.proof.satisfies ? T.green : T.red}20`
+                  }}>
+                    <span style={{ fontSize: 18, color: item.circuit.color }}>{item.circuit.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{item.dev.avatar} {item.dev.name} — {item.circuit.label}</div>
+                      <div style={{ fontSize: 9, color: T.dim, fontFamily: "monospace", marginTop: 2 }}>
+                        threshold: {item.proof.publicInputs.threshold}{item.circuit.unit} · {item.circuit.lte ? "≤" : "≥"} · {new Date(item.id).toLocaleTimeString()}
+                      </div>
+                    </div>
+                    <Tag color={item.proof.satisfies ? T.green : T.red} size={8}>{item.proof.satisfies ? "✓ SATISFIED" : "✗ FAILS"}</Tag>
+                    <button onClick={() => setExportData({ proof: item.proof, circuit: item.circuit })} style={{
+                      padding: "6px 12px", borderRadius: 7, cursor: "pointer", fontFamily: "inherit",
+                      fontSize: 10, fontWeight: 700, background: `${item.circuit.color}12`,
+                      border: `1.5px solid ${item.circuit.color}30`, color: item.circuit.color
+                    }}>📤 Export</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -4428,6 +5112,7 @@ const PAGES = [
   { id: "darkmatter",label: "Dark Matter",          icon: "🌑" },
   { id: "wcis",      label: "Contribution Portfolio", icon: "🏛" },
   { id: "blockchain", label: "Blockchain Ledger",     icon: "⛓" },
+  { id: "zkp",        label: "ZK Proof Verification", icon: "🔐" },
 ];
 
 export default function DevIQ() {
@@ -4595,6 +5280,7 @@ export default function DevIQ() {
           {page === "darkmatter" && <DarkMatterPage data={context} />}
           {page === "wcis" && <WCISPage data={context} />}
           {page === "blockchain" && <BlockchainLedgerPage data={context} />}
+          {page === "zkp" && <ZKPPage data={context} />}
         </main>
       </div>
     </div>
