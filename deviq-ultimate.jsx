@@ -6772,15 +6772,29 @@ const SENTIMENT_COLOR = { positive: "#059669", negative: "#dc2626", neutral: "#6
 const SENTIMENT_ICON  = { positive: "↑", negative: "↓", neutral: "→" };
 
 function SlackPage({ data }) {
-  const slack = data.slack;
+  const [localSlack, setLocalSlack] = useState(null);
+  const slack = localSlack ?? data.slack;
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(null);
   const [filter, setFilter] = useState("all");
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try { await fetch("http://localhost:3001/api/refresh/slack", { method: "POST" }); }
-    catch (e) { console.error(e); }
-    setTimeout(() => setRefreshing(false), 1500);
+    setRefreshError(null);
+    try {
+      // 1. Bust the backend cache
+      await fetch("http://localhost:3001/api/refresh/slack", { method: "POST" });
+      // 2. Immediately fetch fresh Slack data and update local state
+      const res = await fetch("http://localhost:3001/api/slack");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const fresh = await res.json();
+      setLocalSlack(fresh);
+    } catch (e) {
+      console.error("Slack refresh error:", e);
+      setRefreshError(e.message);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   if (!slack) {
@@ -6827,9 +6841,9 @@ function SlackPage({ data }) {
         </button>
       </div>
 
-      {error && (
+      {(error || refreshError) && (
         <div style={{ background: "rgba(220,38,38,0.08)", border: `1.5px solid ${T.red}33`, borderRadius: 12, padding: "14px 20px", color: T.red, fontSize: 13 }}>
-          ⚠ Slack error: {error}
+          ⚠ {refreshError ? `Refresh failed: ${refreshError}` : `Slack error: ${error}`}
         </div>
       )}
 
