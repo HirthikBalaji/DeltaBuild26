@@ -2976,6 +2976,299 @@ function KnowledgeGraphPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   PAGE: DARK MATTER ENGINEERING
+   Measures invisible work beyond commits — debugging, planning,
+   mentoring, architecture thinking, unlogged review time.
+   All signals derived from existing data via proxy math.
+═════════════════════════════════════════════════════════════════ */
+
+function calcDarkMatter(dev, allDevs, fileData, tickets) {
+  const commits    = Math.max(dev.commits, 1);
+  const additions  = dev.additions || 0;
+  const files      = dev.files     || 0;
+  const comments   = dev.jira?.comments   || 0;
+  const collab     = dev.psych?.collab    || 0;
+  const flowScore  = dev.flow?.score      || 0;
+  const totalTasks = Math.max(dev.jira?.total || 1, 1);
+  const doneTasks  = dev.jira?.done       || 0;
+  const burnout    = dev.burnout          || 0;
+  const avgLPC     = additions / commits;
+
+  /* 1. Debugging — small commits, high fix ratio */
+  const debugRaw  = Math.max(0, 40 - avgLPC) / 40;
+  const fixRatio  = doneTasks / totalTasks;
+  const debugging = Math.min(Math.round((debugRaw * 0.6 + fixRatio * 0.4) * 100), 100);
+
+  /* 2. Planning — wide file scan vs output ratio */
+  const breadth    = Math.min(files / Math.max(commits * 0.4, 1), 1);
+  const taskDensity= Math.min(totalTasks / 20, 1);
+  const planning   = Math.min(Math.round((breadth * 0.55 + taskDensity * 0.45) * 100), 100);
+
+  /* 3. Mentoring — collab ratio + shared file co-ownership */
+  const collabRatio= comments > 0 ? collab / comments : 0;
+  const peerFiles  = fileData.filter(f => f.devs && f.devs[dev.name] && Object.keys(f.devs).length > 1).length;
+  const peerShare  = Math.min(peerFiles / Math.max(fileData.length, 1), 1);
+  const mentoring  = Math.min(Math.round((collabRatio * 0.5 + peerShare * 0.3 + (comments / 60) * 0.2) * 100), 100);
+
+  /* 4. Review Depth — comments per task */
+  const reviewDepth = Math.min(Math.round(((comments / totalTasks) / 4) * 100), 100);
+
+  /* 5. Invisible Coordination — pressure + delivery */
+  const coordination = Math.min(Math.round(((burnout / 100) * 0.4 + (doneTasks / totalTasks) * 0.6) * 100), 100);
+
+  /* 6. Knowledge Sharing — module breadth + collab tone */
+  const uniqueModules = new Set(
+    fileData.filter(f => f.devs?.[dev.name]).map(f => f.file.replace(/\..*$/, "").replace(/_.*$/, ""))
+  ).size;
+  const knowledgeShare = Math.min(Math.round((Math.min(uniqueModules / 6, 1) * 0.6 + collabRatio * 0.4) * 100), 100);
+
+  const signals = [
+    { key: "debugging",    label: "Debug & Investigation",   icon: "🐛", score: debugging,     weight: 0.20, color: T.red,    desc: "Small-commit fix cycles, bug triage, root-cause analysis without code output." },
+    { key: "planning",     label: "Planning & Architecture", icon: "🏗", score: planning,      weight: 0.20, color: T.purple, desc: "Wide file scanning, high task density relative to output — architecture thinking time." },
+    { key: "mentoring",    label: "Mentoring & Coaching",    icon: "🎓", score: mentoring,     weight: 0.20, color: T.teal,   desc: "Collaborative comment ratio, shared file co-ownership, cross-team review activity." },
+    { key: "reviewDepth",  label: "Review Depth",            icon: "🔍", score: reviewDepth,   weight: 0.15, color: T.amber,  desc: "Comments-per-task ratio signals thorough code review beyond simple approvals." },
+    { key: "coordination", label: "Invisible Coordination",  icon: "🤝", score: coordination,  weight: 0.15, color: T.orange, desc: "Burnout pressure + delivery rate — hidden standups, async unlogged coordination." },
+    { key: "knowledge",    label: "Knowledge Sharing",       icon: "📡", score: knowledgeShare, weight: 0.10, color: T.sky,   desc: "Module breadth + collaborative tone = actively spreading org knowledge." },
+  ];
+
+  const darkMatterIndex = Math.min(Math.round(signals.reduce((s, sg) => s + sg.score * sg.weight, 0)), 100);
+  const visibleRatio    = Math.max(5,  Math.min(95, Math.round(100 - darkMatterIndex * 0.6)));
+  const hiddenRatio     = 100 - visibleRatio;
+  const topSignal       = signals.slice().sort((a, b) => b.score - a.score)[0];
+  const darkArchetypes  = { debugging:"The Ghost Debugger", planning:"The Silent Architect", mentoring:"The Hidden Mentor", reviewDepth:"The Deep Reviewer", coordination:"The Invisible Glue", knowledge:"The Knowledge Broker" };
+
+  return { signals, darkMatterIndex, visibleRatio, hiddenRatio, darkArchetype: darkArchetypes[topSignal.key], topSignal };
+}
+
+function DonutSplit({ visible, hidden, size = 100, stroke = 14 }) {
+  const r = (size - stroke) / 2, circ = 2 * Math.PI * r;
+  const hidD = (hidden  / 100) * circ;
+  const visD = (visible / 100) * circ;
+  return (
+    <div style={{ position:"relative", width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth={stroke} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.purple} strokeWidth={stroke}
+          strokeDasharray={`${hidD} ${circ}`} strokeLinecap="round"
+          style={{ transition:"stroke-dasharray 1s ease" }} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={T.indigo} strokeWidth={stroke}
+          strokeDasharray={`${visD} ${circ}`} strokeDashoffset={-hidD} strokeLinecap="round"
+          style={{ transition:"stroke-dasharray 1s ease, stroke-dashoffset 1s ease" }} />
+      </svg>
+      <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+        <span style={{ fontSize:size>80?15:11, fontWeight:900, color:T.purple, lineHeight:1 }}>{hidden}%</span>
+        <span style={{ fontSize:8, color:T.muted, marginTop:2, fontWeight:700 }}>DARK</span>
+      </div>
+    </div>
+  );
+}
+
+function SignalBar({ signal, showDesc }) {
+  return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:5 }}>
+        <span style={{ fontSize:14, flexShrink:0 }}>{signal.icon}</span>
+        <span style={{ fontSize:12, fontWeight:700, color:T.text, flex:1 }}>{signal.label}</span>
+        <span style={{ fontSize:13, fontWeight:900, color:signal.color }}>{signal.score}</span>
+        <span style={{ fontSize:9, color:T.dim, width:30, textAlign:"right" }}>×{signal.weight}</span>
+      </div>
+      <div style={{ height:7, background:"rgba(0,0,0,0.05)", borderRadius:4, overflow:"hidden" }}>
+        <div style={{ height:"100%", width:`${signal.score}%`, background:signal.color, borderRadius:4, transition:"width 1s cubic-bezier(0.4,0,0.2,1)" }} />
+      </div>
+      {showDesc && <div style={{ fontSize:10, color:T.dim, marginTop:5, lineHeight:1.5 }}>{signal.desc}</div>}
+    </div>
+  );
+}
+
+function DarkMatterPage({ data }) {
+  const [showDesc, setShowDesc] = useState(false);
+  const [sortBy,   setSortBy]   = useState("darkMatterIndex");
+
+  const results = useMemo(() =>
+    data.devs.map(dev => ({ dev, ...calcDarkMatter(dev, data.devs, data.fileData, data.tickets) }))
+      .sort((a, b) => b[sortBy] - a[sortBy])
+  , [data, sortBy]);
+
+  const teamDMI = Math.round(results.reduce((s, r) => s + r.darkMatterIndex, 0) / results.length);
+
+  const SIGNAL_KEYS = ["debugging","planning","mentoring","reviewDepth","coordination","knowledge"];
+  const teamSignalAvg = SIGNAL_KEYS.map(k => ({
+    ...results[0].signals.find(sg => sg.key === k),
+    avg: Math.round(results.reduce((s, r) => s + (r.signals.find(sg => sg.key === k)?.score || 0), 0) / results.length)
+  }));
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+
+      {/* Header */}
+      <Card glow={T.purple}>
+        <div style={{ display:"flex", gap:20, alignItems:"center" }}>
+          <div style={{ flex:1 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+              <span style={{ fontSize:24 }}>🌑</span>
+              <span style={{ fontSize:15, fontWeight:800, color:T.purple, textTransform:"uppercase", letterSpacing:"0.06em" }}>Dark Matter Engineering</span>
+            </div>
+            <div style={{ fontSize:11, color:T.muted, lineHeight:1.9 }}>
+              Git and Jira only capture <strong style={{ color:T.indigo }}>visible work</strong> — commits, tickets, PRs.
+              But <strong style={{ color:T.purple }}>40–70% of real engineering effort</strong> is invisible:
+              debugging sessions without commits, architecture whiteboarding, mentoring, cross-team coordination.
+              The <strong style={{ color:T.text }}>Dark Matter Index</strong> estimates this via 6 behavioral proxy signals.
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
+              {["Debugging","Planning","Mentoring","Review Depth","Coordination","Knowledge Sharing"].map(t => (
+                <Tag key={t} color={T.purple} size={10}>{t}</Tag>
+              ))}
+            </div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10, alignItems:"center", flexShrink:0 }}>
+            <DonutSplit visible={100 - teamDMI} hidden={teamDMI} size={120} stroke={16} />
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontSize:11, color:T.muted, fontWeight:700 }}>Team Dark Matter</div>
+              <div style={{ fontSize:10, color:T.dim }}>avg across {results.length} devs</div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Team signal overview */}
+      <Card>
+        <SH icon="📡" title="Team-Wide Dark Signal Averages" />
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
+          {teamSignalAvg.map(s => (
+            <div key={s.key} style={{ padding:"14px 16px", background:T.elevated, borderRadius:12, border:`1px solid ${s.color}22` }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                <span style={{ fontSize:18 }}>{s.icon}</span>
+                <span style={{ fontSize:11, fontWeight:700, color:T.text }}>{s.label}</span>
+              </div>
+              <div style={{ fontSize:28, fontWeight:900, color:s.color, lineHeight:1, marginBottom:8 }}>{s.avg}</div>
+              <Bar value={s.avg} color={s.color} h={5} />
+              <div style={{ fontSize:9, color:T.dim, marginTop:6, lineHeight:1.5 }}>{s.desc}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Per-developer cards */}
+      <Card>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:18 }}>
+          <span style={{ fontSize:14, color:T.purple }}>🌑</span>
+          <span style={{ fontSize:13, color:T.muted, letterSpacing:"0.12em", textTransform:"uppercase", fontWeight:700 }}>Developer Dark Matter Index</span>
+          <div style={{ marginLeft:"auto", display:"flex", gap:8, alignItems:"center" }}>
+            <button onClick={() => setShowDesc(d => !d)} style={{
+              fontSize:11, padding:"5px 14px", borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontWeight:600,
+              border:`1px solid ${T.borderHi}`, background:showDesc?`${T.indigo}22`:"transparent", color:T.indigoLt
+            }}>{showDesc ? "Hide" : "Show"} Descriptions</button>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{
+              fontSize:11, padding:"5px 10px", borderRadius:7, background:T.elevated, color:T.text,
+              border:`1px solid ${T.border}`, outline:"none", cursor:"pointer", fontFamily:"inherit"
+            }}>
+              <option value="darkMatterIndex">Sort: DMI Score</option>
+              <option value="hiddenRatio">Sort: Hidden Ratio</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          {results.map(({ dev, signals, darkMatterIndex, visibleRatio, hiddenRatio, darkArchetype, topSignal }, i) => (
+            <div key={dev.name} style={{
+              padding:"20px 22px", background:T.elevated, borderRadius:14,
+              border:`1.5px solid ${i===0 ? T.purple+"55" : T.border}`,
+              position:"relative", overflow:"hidden"
+            }}>
+              {i === 0 && <div style={{ position:"absolute", top:0, left:0, width:"100%", height:3, background:`linear-gradient(90deg,${T.purple},${T.sky})` }} />}
+
+              {/* Header row */}
+              <div style={{ display:"flex", gap:16, alignItems:"center", marginBottom:18 }}>
+                <DonutSplit visible={visibleRatio} hidden={hiddenRatio} size={86} stroke={11} />
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                    <div style={{ width:38, height:38, borderRadius:"50%", flexShrink:0,
+                      background:`${rc(dev.risk)}14`, border:`2px solid ${rc(dev.risk)}`,
+                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800 }}>
+                      {dev.avatar}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:15, fontWeight:800, color:T.text }}>{dev.name}</div>
+                      <div style={{ fontSize:10, color:T.muted }}>{dev.role}</div>
+                    </div>
+                    <div style={{ marginLeft:8, display:"flex", gap:6, flexWrap:"wrap" }}>
+                      <Tag color={T.purple} size={10}>{darkArchetype}</Tag>
+                      <Tag color={topSignal.color} size={10}>Top: {topSignal.label}</Tag>
+                    </div>
+                  </div>
+                  {/* Visible vs hidden split bar */}
+                  <div>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4, fontSize:9 }}>
+                      <span style={{ color:T.indigo, fontWeight:700 }}>▓ Visible {visibleRatio}%</span>
+                      <span style={{ color:T.purple, fontWeight:700 }}>Dark Matter {hiddenRatio}% ░</span>
+                    </div>
+                    <div style={{ height:8, borderRadius:4, overflow:"hidden", display:"flex" }}>
+                      <div style={{ width:`${visibleRatio}%`, background:T.indigo, transition:"width 1s ease" }} />
+                      <div style={{ width:`${hiddenRatio}%`, background:`linear-gradient(90deg,${T.purple},${T.sky})`, transition:"width 1s ease" }} />
+                    </div>
+                  </div>
+                </div>
+                {/* DMI score badge */}
+                <div style={{ textAlign:"center", padding:"14px 20px", background:`${T.purple}0f`,
+                  borderRadius:12, border:`1px solid ${T.purple}33`, flexShrink:0 }}>
+                  <div style={{ fontSize:34, fontWeight:900, color:T.purple, lineHeight:1 }}>{darkMatterIndex}</div>
+                  <div style={{ fontSize:9, color:T.muted, marginTop:4, textTransform:"uppercase", letterSpacing:"0.08em" }}>DMI</div>
+                  <div style={{ fontSize:9, color:T.dim, marginTop:2 }}>vs {dev.contribution} visible</div>
+                </div>
+              </div>
+
+              {/* Signal bars grid */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 28px" }}>
+                {signals.map(s => <SignalBar key={s.key} signal={s} showDesc={showDesc} />)}
+              </div>
+
+              {/* Insight strip */}
+              <div style={{ marginTop:4, padding:"10px 14px", borderRadius:9,
+                background:`${topSignal.color}0a`, border:`1px solid ${topSignal.color}22`,
+                fontSize:10, color:T.muted, lineHeight:1.6 }}>
+                <strong style={{ color:topSignal.color }}>{topSignal.icon} {topSignal.label} dominant — </strong>
+                {topSignal.key === "debugging"    && `${dev.name} resolves issues with few lines written — deep investigation work invisible to commit counts.`}
+                {topSignal.key === "planning"     && `Wide file scan pattern suggests ${dev.name} spends significant time understanding system architecture before writing code.`}
+                {topSignal.key === "mentoring"    && `${dev.name}'s collab ratio and co-ownership of ${data.fileData.filter(f=>f.devs?.[dev.name]&&Object.keys(f.devs).length>1).length} shared files signal active mentoring.`}
+                {topSignal.key === "reviewDepth"  && `${dev.name} averages ${(dev.jira.comments/Math.max(dev.jira.total,1)).toFixed(1)} comments/task — well above threshold for deep review.`}
+                {topSignal.key === "coordination" && `${dev.burnout}% burnout yet ${dev.jira.done} tasks delivered — hidden coordination absorbing pressure without code output.`}
+                {topSignal.key === "knowledge"    && `Presence across ${new Set(data.fileData.filter(f=>f.devs?.[dev.name]).map(f=>f.file.replace(/\..*$/,"").replace(/_.*$/,""))).size} modules signals active knowledge spreading.`}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Methodology */}
+      <Card>
+        <SH icon="📐" title="Signal Methodology" />
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          {[
+            { icon:"🐛", label:"Debug Signal",        formula:"max(0,40−avg_lines/commit)/40×0.6 + done_ratio×0.4" },
+            { icon:"🏗", label:"Planning Signal",     formula:"file_breadth/commit×0.55 + task_density×0.45" },
+            { icon:"🎓", label:"Mentoring Signal",    formula:"collab_ratio×0.5 + peer_file_share×0.3 + comment_vol×0.2" },
+            { icon:"🔍", label:"Review Depth",        formula:"(comments / tasks / 4) capped at 100" },
+            { icon:"🤝", label:"Coordination Signal", formula:"burnout_pressure×0.4 + delivery_rate×0.6" },
+            { icon:"📡", label:"Knowledge Signal",    formula:"module_breadth×0.6 + collab_tone×0.4" },
+          ].map(m => (
+            <div key={m.label} style={{ padding:"12px 14px", background:T.elevated, borderRadius:10, border:`1px solid ${T.border}` }}>
+              <div style={{ fontSize:11, fontWeight:700, color:T.text, marginBottom:5 }}>{m.icon} {m.label}</div>
+              <code style={{ fontSize:9, color:T.teal, background:"rgba(0,0,0,0.1)", padding:"4px 8px", borderRadius:5, display:"block", lineHeight:1.6 }}>{m.formula}</code>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:14, padding:"12px 16px", background:`${T.purple}08`, borderRadius:10,
+          border:`1px solid ${T.purple}18`, fontSize:10, color:T.muted, lineHeight:1.8 }}>
+          <strong style={{ color:T.purple }}>DMI</strong> = weighted sum (Debug 20% · Planning 20% · Mentoring 20% · Review 15% · Coordination 15% · Knowledge 10%).
+          All inputs are proxy signals — directional, not absolute. Cross-validate with qualitative 1-on-1 data for highest accuracy.
+        </div>
+      </Card>
+
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -2991,6 +3284,7 @@ const PAGES = [
   { id: "evolution", label: "Evolution Simulator", icon: "🧬" },
   { id: "research",  label: "Research Platform",   icon: "🔬" },
   { id: "knowledge", label: "Knowledge Graph",      icon: "🧠" },
+  { id: "darkmatter",label: "Dark Matter",          icon: "🌑" },
 ];
 
 export default function DevIQ() {
@@ -3155,6 +3449,7 @@ export default function DevIQ() {
           {page === "evolution" && <EvolutionPage data={context} />}
           {page === "research" && <ResearchPage data={context} />}
           {page === "knowledge" && <KnowledgeGraphPage data={context} />}
+          {page === "darkmatter" && <DarkMatterPage data={context} />}
         </main>
       </div>
     </div>
