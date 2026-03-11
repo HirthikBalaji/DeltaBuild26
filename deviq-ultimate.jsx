@@ -5919,6 +5919,853 @@ function ZKPPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   JIRA AGENT PAGE  – AI chat assistant with tool-use simulation
+═════════════════════════════════════════════════════════════════ */
+
+// ── Tool registry ──────────────────────────────────────────────
+const JIRA_TOOLS = [
+  {
+    name: "list_tickets",
+    description: "List Jira tickets filtered by status, assignee, priority, or sprint",
+    input_schema: {
+      type: "object",
+      properties: {
+        status:   { type: "string", description: "Filter by status: todo | in_progress | done | blocked" },
+        assignee: { type: "string", description: "Filter by developer name" },
+        priority: { type: "string", description: "Filter by priority: critical | high | medium | low" },
+        sprint:   { type: "string", description: "Filter by sprint label e.g. S4" },
+      },
+    },
+  },
+  {
+    name: "get_ticket",
+    description: "Get full details of a single Jira ticket by ID",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Ticket ID e.g. DEV-42" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "create_ticket",
+    description: "Create a new Jira ticket",
+    input_schema: {
+      type: "object",
+      properties: {
+        title:    { type: "string", description: "Short title of the ticket" },
+        priority: { type: "string", description: "critical | high | medium | low" },
+        assignee: { type: "string", description: "Developer name to assign to" },
+        type:     { type: "string", description: "bug | story | task | epic" },
+        sprint:   { type: "string", description: "Sprint label e.g. S4" },
+      },
+      required: ["title", "priority"],
+    },
+  },
+  {
+    name: "update_ticket_status",
+    description: "Update the status of a Jira ticket",
+    input_schema: {
+      type: "object",
+      properties: {
+        id:     { type: "string", description: "Ticket ID" },
+        status: { type: "string", description: "todo | in_progress | done | blocked" },
+      },
+      required: ["id", "status"],
+    },
+  },
+  {
+    name: "assign_ticket",
+    description: "Assign or re-assign a ticket to a developer",
+    input_schema: {
+      type: "object",
+      properties: {
+        id:       { type: "string", description: "Ticket ID" },
+        assignee: { type: "string", description: "Developer name" },
+      },
+      required: ["id", "assignee"],
+    },
+  },
+  {
+    name: "get_sprint_summary",
+    description: "Get a summary of sprint velocity, ticket counts, and blockers",
+    input_schema: {
+      type: "object",
+      properties: { sprint: { type: "string", description: "Sprint label e.g. S4. Leave empty for current sprint." } },
+    },
+  },
+  {
+    name: "get_developer_workload",
+    description: "Get workload and open ticket count for a specific developer",
+    input_schema: {
+      type: "object",
+      properties: { name: { type: "string", description: "Developer name" } },
+      required: ["name"],
+    },
+  },
+  {
+    name: "flag_blocked_tickets",
+    description: "Identify all blocked tickets and their blockers",
+    input_schema: { type: "object", properties: { dummy: { type: "string", description: "unused" } } },
+  },
+];
+
+// ── Tool execution (runs against live context data) ────────────
+function executeJiraTool(toolName, toolInput, context) {
+  const { devs, tickets } = context;
+  const allTickets = tickets.length > 0 ? tickets : devs.flatMap(d =>
+    Array.from({ length: d.jira?.todo || 0 }, (_, i) => ({
+      id: `DEV-${d.jira?.todo * 10 + i + 1}`,
+      title: `Task for ${d.name} #${i + 1}`,
+      status: i % 3 === 0 ? "in_progress" : i % 5 === 0 ? "blocked" : "todo",
+      priority: i % 4 === 0 ? "high" : i % 6 === 0 ? "critical" : "medium",
+      assignee: d.name,
+      type: i % 3 === 0 ? "bug" : "story",
+      sprint: `S${(i % 4) + 1}`,
+      comments: d.jira?.comments || 0,
+    }))
+  );
+
+  switch (toolName) {
+    case "list_tickets": {
+      let result = [...allTickets];
+      if (toolInput.status)   result = result.filter(t => t.status === toolInput.status);
+      if (toolInput.assignee) result = result.filter(t => t.assignee?.toLowerCase().includes(toolInput.assignee.toLowerCase()));
+      if (toolInput.priority) result = result.filter(t => t.priority === toolInput.priority);
+      if (toolInput.sprint)   result = result.filter(t => t.sprint === toolInput.sprint);
+      return { tickets: result.slice(0, 20), total: result.length };
+    }
+    case "get_ticket": {
+      const t = allTickets.find(t => t.id?.toLowerCase() === toolInput.id?.toLowerCase());
+      return t ? { ticket: t } : { error: `Ticket ${toolInput.id} not found` };
+    }
+    case "create_ticket": {
+      const newId = `DEV-${Math.floor(Math.random() * 900) + 100}`;
+      return {
+        created: {
+          id: newId, title: toolInput.title, status: "todo",
+          priority: toolInput.priority || "medium",
+          assignee: toolInput.assignee || "Unassigned",
+          type: toolInput.type || "task", sprint: toolInput.sprint || "S4",
+        },
+        message: `Ticket ${newId} created successfully`,
+      };
+    }
+    case "update_ticket_status": {
+      return { id: toolInput.id, newStatus: toolInput.status, message: `Ticket ${toolInput.id} moved to "${toolInput.status}"` };
+    }
+    case "assign_ticket": {
+      return { id: toolInput.id, assignee: toolInput.assignee, message: `Ticket ${toolInput.id} assigned to ${toolInput.assignee}` };
+    }
+    case "get_sprint_summary": {
+      const sprint = toolInput.sprint || "S4";
+      const sprintTickets = allTickets.filter(t => t.sprint === sprint);
+      const done = sprintTickets.filter(t => t.status === "done").length;
+      const blocked = sprintTickets.filter(t => t.status === "blocked").length;
+      return {
+        sprint, total: sprintTickets.length, done, blocked,
+        inProgress: sprintTickets.filter(t => t.status === "in_progress").length,
+        todo: sprintTickets.filter(t => t.status === "todo").length,
+        velocity: Math.round(done / Math.max(sprintTickets.length, 1) * 100),
+      };
+    }
+    case "get_developer_workload": {
+      const dev = devs.find(d => d.name?.toLowerCase().includes(toolInput.name.toLowerCase()));
+      if (!dev) return { error: `Developer "${toolInput.name}" not found` };
+      return {
+        name: dev.name, burnout: dev.burnout, openTickets: dev.jira?.todo || 0,
+        comments: dev.jira?.comments || 0, totalTickets: dev.jira?.total || 0,
+        commits: dev.commits, workloadLabel: bl(dev.burnout),
+      };
+    }
+    case "flag_blocked_tickets": {
+      const blocked = allTickets.filter(t => t.status === "blocked");
+      return { blocked, count: blocked.length };
+    }
+    default:
+      return { error: `Unknown tool: ${toolName}` };
+  }
+}
+
+// ── Tool result card renderer ──────────────────────────────────
+function ToolResultCard({ toolName, result }) {
+  const statusColor = s => ({ todo: T.sky, in_progress: T.indigo, done: T.green, blocked: T.red }[s] || T.muted);
+  const prioColor   = p => ({ critical: T.red, high: T.orange, medium: T.amber, low: T.green }[p] || T.muted);
+
+  if (toolName === "list_tickets" && result.tickets) {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 10, color: T.dim, marginBottom: 8, fontWeight: 700, letterSpacing: "0.1em" }}>
+          🎫 TICKETS ({result.total} total, showing {result.tickets.length})
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {result.tickets.slice(0, 8).map(t => (
+            <div key={t.id} style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+              background: "rgba(15,23,42,0.04)", borderRadius: 8,
+              border: `1px solid ${statusColor(t.status)}22`
+            }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: T.dim, minWidth: 60 }}>{t.id}</span>
+              <span style={{ flex: 1, fontSize: 11, color: T.text, fontWeight: 500 }}>{t.title}</span>
+              <Tag color={prioColor(t.priority)} size={9}>{t.priority}</Tag>
+              <Tag color={statusColor(t.status)} size={9}>{t.status?.replace("_"," ")}</Tag>
+              {t.assignee && <span style={{ fontSize: 10, color: T.dim }}>{t.assignee}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (toolName === "get_sprint_summary") {
+    return (
+      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+        {[
+          { label: "Done", value: result.done, color: T.green },
+          { label: "In Progress", value: result.inProgress, color: T.indigo },
+          { label: "Todo", value: result.todo, color: T.sky },
+          { label: "Blocked", value: result.blocked, color: T.red },
+        ].map(m => (
+          <div key={m.label} style={{
+            padding: "10px 12px", background: `${m.color}0e`, border: `1.5px solid ${m.color}22`, borderRadius: 10, textAlign: "center"
+          }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: m.color }}>{m.value}</div>
+            <div style={{ fontSize: 9, color: T.dim, fontWeight: 700, letterSpacing: "0.08em" }}>{m.label.toUpperCase()}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (toolName === "create_ticket" && result.created) {
+    return (
+      <div style={{
+        marginTop: 10, padding: "12px 16px", background: `${T.green}0d`,
+        border: `1.5px solid ${T.green}33`, borderRadius: 10
+      }}>
+        <div style={{ fontSize: 11, color: T.green, fontWeight: 800 }}>✓ {result.message}</div>
+        <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
+          <strong>{result.created.id}</strong> · {result.created.type} · {result.created.priority} priority · {result.created.assignee}
+        </div>
+      </div>
+    );
+  }
+
+  if ((toolName === "update_ticket_status" || toolName === "assign_ticket") && result.message) {
+    return (
+      <div style={{ marginTop: 10, padding: "10px 14px", background: `${T.teal}0d`, border: `1.5px solid ${T.teal}33`, borderRadius: 10 }}>
+        <div style={{ fontSize: 11, color: T.teal, fontWeight: 700 }}>✓ {result.message}</div>
+      </div>
+    );
+  }
+
+  if (toolName === "get_developer_workload" && !result.error) {
+    return (
+      <div style={{ marginTop: 10, padding: "12px 16px", background: T.elevated, borderRadius: 10, border: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: T.text, marginBottom: 8 }}>👤 {result.name}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+          {[
+            { l: "Open Tickets", v: result.openTickets, c: T.orange },
+            { l: "Commits", v: result.commits, c: T.indigo },
+            { l: "Burnout", v: `${result.burnout}%`, c: bc(result.burnout) },
+          ].map(m => (
+            <div key={m.l} style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: m.c }}>{m.v}</div>
+              <div style={{ fontSize: 9, color: T.dim, fontWeight: 700 }}>{m.l.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+        <Tag color={bc(result.burnout)} size={9} style={{ marginTop: 8 }}>{result.workloadLabel}</Tag>
+      </div>
+    );
+  }
+
+  if (toolName === "flag_blocked_tickets") {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 10, color: T.red, fontWeight: 800, marginBottom: 8 }}>🚫 {result.count} BLOCKED TICKETS</div>
+        {result.blocked.slice(0, 6).map(t => (
+          <div key={t.id} style={{ fontSize: 10, padding: "6px 10px", background: `${T.red}08`, borderRadius: 6, marginBottom: 4, color: T.text }}>
+            <strong>{t.id}</strong> — {t.title} · <span style={{ color: T.dim }}>{t.assignee}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Fallback: raw JSON view
+  return (
+    <pre style={{ marginTop: 8, fontSize: 10, background: "rgba(0,0,0,0.04)", borderRadius: 8, padding: "10px", overflow: "auto", color: T.muted }}>
+      {JSON.stringify(result, null, 2)}
+    </pre>
+  );
+}
+
+// ── Tool call bubble ────────────────────────────────────────────
+function ToolCallBubble({ call }) {
+  const [open, setOpen] = useState(false);
+  const toolColor = { list_tickets: T.indigo, get_ticket: T.sky, create_ticket: T.green, update_ticket_status: T.teal, assign_ticket: T.purple, get_sprint_summary: T.amber, get_developer_workload: T.orange, flag_blocked_tickets: T.red }[call.name] || T.muted;
+  return (
+    <div style={{ margin: "6px 0" }}>
+      <div onClick={() => setOpen(o => !o)} style={{
+        display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer",
+        padding: "6px 14px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+        background: `${toolColor}12`, border: `1.5px solid ${toolColor}33`, color: toolColor,
+      }}>
+        <span style={{ fontSize: 13 }}>🔧</span>
+        <span>{call.name}</span>
+        {call.input && Object.keys(call.input).length > 0 && (
+          <span style={{ fontSize: 9, color: `${toolColor}99` }}>
+            {Object.entries(call.input).map(([k,v]) => `${k}="${v}"`).join(", ")}
+          </span>
+        )}
+        <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? "▲" : "▼"}</span>
+        {call.status === "running" && <span style={{ fontSize: 9 }}>⏳</span>}
+        {call.status === "done"    && <span style={{ fontSize: 10, color: T.green }}>✓</span>}
+      </div>
+      {open && call.result && (
+        <div style={{ paddingLeft: 14 }}>
+          <ToolResultCard toolName={call.name} result={call.result} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Quick-action suggestion chips ─────────────────────────────
+const QUICK_PROMPTS = [
+  "List all blocked tickets",
+  "Show sprint S4 summary",
+  "What's Hirthik's workload?",
+  "List all critical priority tickets",
+  "Create a bug ticket for auth failure",
+  "Who has the most open tickets?",
+  "Show in-progress tickets",
+  "Flag burnout risks with heavy backlogs",
+];
+
+// ── Main Jira Agent Page ───────────────────────────────────────
+// ── Ollama tool schema converter (Anthropic → Ollama/OpenAI format) ──
+// toOllamaTools not used — we use prompt-based tool calling instead
+function toOllamaTools(tools) { return []; }
+
+// ── Parse tool calls from Ollama response ─────────────────────
+function parseOllamaToolCalls(message) {
+  // Ollama returns tool_calls array on the message object
+  if (message.tool_calls && message.tool_calls.length > 0) {
+    return message.tool_calls.map((tc, i) => ({
+      id: `call_${Date.now()}_${i}`,
+      name: tc.function?.name || tc.name,
+      input: tc.function?.arguments
+        ? (typeof tc.function.arguments === "string"
+            ? (() => { try { return JSON.parse(tc.function.arguments); } catch { return {}; } })()
+            : tc.function.arguments)
+        : (tc.arguments || {}),
+    }));
+  }
+  // Fallback: parse from content text if model emitted JSON tool call blocks
+  if (message.content && typeof message.content === "string") {
+    const jsonMatch = message.content.match(/```json\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]);
+        if (parsed.tool && parsed.arguments) {
+          return [{ id: `call_${Date.now()}`, name: parsed.tool, input: parsed.arguments }];
+        }
+      } catch {}
+    }
+  }
+  return [];
+}
+
+const OLLAMA_BASE = "http://localhost:11434";
+const OLLAMA_TOOL_MODELS = ["llama3.1", "llama3.1:8b", "llama3.2", "qwen2.5", "qwen2.5:7b", "mistral-nemo", "mistral", "llama3-groq-tool-use"];
+
+function JiraAgentPage({ data }) {
+  const [messages, setMessages] = useState([
+    {
+      id: "welcome", role: "assistant",
+      content: "Hey! I'm your **Jira Agent** 🤖 — running fully **offline via Ollama**.\n\nI can query tickets, create issues, check sprint health, manage workloads, and flag blockers.\n\nPick a model and start chatting!",
+      toolCalls: [],
+    }
+  ]);
+  const [input, setInput]               = useState("");
+  const [loading, setLoading]           = useState(false);
+  const [ollamaModel, setOllamaModel]   = useState("llama3.1");
+  const [ollamaHost, setOllamaHost]     = useState(OLLAMA_BASE);
+  const [ollamaStatus, setOllamaStatus] = useState("unknown");
+  const [availableModels, setAvailableModels] = useState([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const bottomRef = useRef(null);
+  const inputRef  = useRef(null);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  // ── Probe Ollama on mount & host change ──────────────────
+  useEffect(() => {
+    async function probe() {
+      setOllamaStatus("unknown");
+      try {
+        const r = await fetch(`${ollamaHost}/api/tags`, { signal: AbortSignal.timeout(3000) });
+        if (r.ok) {
+          const j = await r.json();
+          const names = (j.models || []).map(m => m.name);
+          setAvailableModels(names);
+          setOllamaStatus("online");
+          // Auto-select first tool-capable model if available
+          const preferred = OLLAMA_TOOL_MODELS.find(m => names.some(n => n.startsWith(m.split(":")[0])));
+          if (preferred) {
+            const match = names.find(n => n.startsWith(preferred.split(":")[0]));
+            if (match) setOllamaModel(match);
+          } else if (names.length > 0) {
+            setOllamaModel(names[0]);
+          }
+        } else {
+          setOllamaStatus("offline");
+        }
+      } catch {
+        setOllamaStatus("offline");
+      }
+    }
+    probe();
+  }, [ollamaHost]);
+
+  const systemPrompt = `You are a Jira Agent embedded inside DevIQ, an AI developer intelligence dashboard.
+You have access to real project data: ${data.devs.length} developers, ${data.tickets.length} Jira tickets.
+Developer names: ${data.devs.map(d => d.name).join(", ")}.
+
+You have tools available. ALWAYS call the appropriate tool when data is needed — never fabricate ticket data.
+After getting tool results, provide a clear, concise analysis.
+Be proactive: flag blockers, burnout risks, and overloaded developers.
+Format responses with markdown. Keep them short and actionable.`;
+
+  // ── Build Ollama-format conversation history ──────────────
+  function buildOllamaHistory(msgs, userText) {
+    const history = [];
+    for (const m of msgs) {
+      if (m.id === "welcome") continue;
+      if (m.role === "user") {
+        history.push({ role: "user", content: m.content });
+      } else if (m.role === "assistant") {
+        // Include tool calls in assistant message if present
+        const assistantEntry = { role: "assistant", content: m.content || "" };
+        if (m.toolCalls && m.toolCalls.length > 0) {
+          assistantEntry.tool_calls = m.toolCalls.map(tc => ({
+            id: tc.id,
+            type: "function",
+            function: { name: tc.name, arguments: JSON.stringify(tc.input) }
+          }));
+        }
+        history.push(assistantEntry);
+        // Inject tool results as tool messages
+        for (const tc of (m.toolCalls || [])) {
+          if (tc.result) {
+            history.push({ role: "tool", content: JSON.stringify(tc.result), tool_call_id: tc.id });
+          }
+        }
+      }
+    }
+    history.push({ role: "user", content: userText });
+    return history;
+  }
+
+  // ── Simple Ollama call — NO tools API, plain messages only ──
+  async function callOllama(historyMessages) {
+    const resp = await fetch(`${ollamaHost}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: ollamaModel,
+        messages: historyMessages,
+        stream: false,
+        options: { temperature: 0.3 },
+      }),
+    });
+    if (!resp.ok) throw new Error(`Ollama error ${resp.status}: ${await resp.text()}`);
+    const json = await resp.json();
+    return (json.message?.content || "").trim();
+  }
+
+  // Build full data snapshot for system prompt injection
+  function buildDataSnapshot() {
+    const { devs, tickets } = data;
+    const allTickets = tickets.length > 0 ? tickets : devs.flatMap(d =>
+      Array.from({ length: Math.min(d.jira?.todo || 0, 5) }, (_, i) => ({
+        id: `DEV-${d.jira?.todo * 10 + i + 1}`,
+        title: `Task #${i + 1} for ${d.name}`,
+        status: i % 3 === 0 ? "in_progress" : i % 5 === 0 ? "blocked" : "todo",
+        priority: i % 4 === 0 ? "high" : i % 6 === 0 ? "critical" : "medium",
+        assignee: d.name, type: i % 3 === 0 ? "bug" : "story", sprint: `S${(i % 4) + 1}`,
+      }))
+    );
+    const devSummary = devs.map(d =>
+      `- ${d.name}: ${d.commits} commits, burnout=${d.burnout}%, openTickets=${d.jira?.todo||0}, contribution=${d.contribution}%`
+    ).join("\n");
+    const ticketSummary = allTickets.slice(0, 30).map(t =>
+      `- ${t.id} [${t.priority}][${t.status}] ${t.title} -> ${t.assignee} (${t.sprint})`
+    ).join("\n");
+    return { devSummary, ticketSummary, allTickets };
+  }
+
+  async function sendMessage(userText) {
+    if (!userText.trim() || loading) return;
+    setInput("");
+    setLoading(true);
+
+    const ts = Date.now();
+    const userMsg     = { id: ts,   role: "user",      content: userText, toolCalls: [] };
+    const asstMsgId   = ts + 1;
+    const asstMsg     = { id: asstMsgId, role: "assistant", content: "", toolCalls: [], streaming: true };
+    setMessages(prev => [...prev, userMsg, asstMsg]);
+
+    try {
+      const { devSummary, ticketSummary, allTickets } = buildDataSnapshot();
+
+      // Decide which tool to call based on a lightweight first pass
+      const routerSystemPrompt = `You are a routing assistant. Based on the user question, reply with EXACTLY one line:
+TOOL: <tool_name> <json_args>
+
+Available tools:
+- list_tickets {"status":"...","assignee":"...","priority":"...","sprint":"..."}  (all optional)
+- get_ticket {"id":"DEV-XX"}
+- create_ticket {"title":"...","priority":"...","assignee":"...","type":"...","sprint":"..."}
+- update_ticket_status {"id":"DEV-XX","status":"..."}
+- assign_ticket {"id":"DEV-XX","assignee":"..."}
+- get_sprint_summary {"sprint":"S4"}
+- get_developer_workload {"name":"..."}
+- flag_blocked_tickets {}
+- none {}   (use when no tool is needed, just answer from context)
+
+Reply with ONLY the TOOL line. No explanation.`;
+
+      const routerMessages = [
+        { role: "system", content: routerSystemPrompt },
+        { role: "user", content: userText },
+      ];
+
+      const routerReply = await callOllama(routerMessages);
+
+      // Parse the TOOL line
+      let toolName = "none";
+      let toolInput = {};
+      const toolMatch = routerReply.match(/TOOL:\s*(\w+)\s*({.*})?/s);
+      if (toolMatch) {
+        toolName = toolMatch[1].trim();
+        try { toolInput = JSON.parse((toolMatch[2] || "{}").trim()); } catch { toolInput = {}; }
+      }
+
+      // Execute tool if not "none"
+      let toolResult = null;
+      let resolvedCalls = [];
+      if (toolName && toolName !== "none") {
+        const pendingCall = { id: `call_${ts}`, name: toolName, input: toolInput, status: "running", result: null };
+        setMessages(prev => prev.map(m =>
+          m.id === asstMsgId ? { ...m, toolCalls: [pendingCall], streaming: true } : m
+        ));
+        await new Promise(r => setTimeout(r, 200));
+        toolResult = executeJiraTool(toolName, toolInput, data);
+        const resolvedCall = { ...pendingCall, status: "done", result: toolResult };
+        resolvedCalls = [resolvedCall];
+        setMessages(prev => prev.map(m =>
+          m.id === asstMsgId ? { ...m, toolCalls: resolvedCalls, streaming: true } : m
+        ));
+      }
+
+      // Final answer pass — inject everything into context
+      const finalSystemPrompt = `You are a Jira Agent inside DevIQ.
+
+TEAM DATA:
+${devSummary}
+
+TICKETS (sample):
+${ticketSummary}
+
+${toolResult ? "TOOL RESULT for " + toolName + ":\n" + JSON.stringify(toolResult, null, 2) : ""}
+
+Answer the question based on the data above. Be concise, use plain text. No JSON in reply.`;
+
+      const finalMessages = [
+        { role: "system", content: finalSystemPrompt },
+        ...messages
+            .filter(m => m.id !== "welcome")
+            .map(m => ({ role: m.role, content: m.content || "" })),
+        { role: "user", content: userText },
+      ];
+
+      const finalReply = await callOllama(finalMessages);
+
+      setMessages(prev => prev.map(m =>
+        m.id === asstMsgId ? { ...m, content: finalReply, toolCalls: resolvedCalls, streaming: false } : m
+      ));
+
+    } catch (err) {
+      const errMsg = err.message?.includes("Failed to fetch") || err.message?.includes("NetworkError")
+        ? "⚠️ Cannot reach Ollama at " + ollamaHost + ". Run: OLLAMA_ORIGINS=* ollama serve"
+        : "⚠️ " + err.message;
+      setMessages(prev => prev.map(m =>
+        m.id === asstMsgId ? { ...m, content: errMsg, streaming: false } : m
+      ));
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  // ── Simple markdown renderer ──────────────────────────────
+  function renderMd(text) {
+    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\n)/g);
+    return parts.map((p, i) => {
+      if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} style={{ color: T.text }}>{p.slice(2, -2)}</strong>;
+      if (p.startsWith("`") && p.endsWith("`"))   return <code key={i} style={{ background: "rgba(0,0,0,0.07)", padding: "1px 5px", borderRadius: 4, fontSize: "0.92em", fontFamily: "inherit" }}>{p.slice(1, -1)}</code>;
+      if (p === "\n") return <br key={i} />;
+      return <span key={i}>{p}</span>;
+    });
+  }
+
+  const statusColor = { online: T.green, offline: T.red, unknown: T.amber }[ollamaStatus];
+  const statusLabel = { online: "Ollama Online", offline: "Ollama Offline", unknown: "Connecting…" }[ollamaStatus];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 128px)", gap: 0 }}>
+
+      {/* ── Header ── */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 14, padding: "14px 0", flexShrink: 0,
+        borderBottom: `1px solid ${T.border}`
+      }}>
+        {/* Logo */}
+        <div style={{
+          width: 42, height: 42, borderRadius: 12,
+          background: "linear-gradient(135deg,#0052CC,#2684FF)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 20, boxShadow: "0 4px 16px #0052CC44", flexShrink: 0
+        }}>🤖</div>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>Jira Agent</div>
+          <div style={{ fontSize: 11, color: T.dim, fontWeight: 600 }}>Offline · Ollama · tool-use · streaming</div>
+        </div>
+
+        {/* Status pill */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 7, padding: "6px 14px",
+          background: `${statusColor}12`, border: `1.5px solid ${statusColor}33`, borderRadius: 20,
+          fontSize: 11, fontWeight: 700, color: statusColor, marginLeft: 8
+        }}>
+          <Pulse color={statusColor} />
+          {statusLabel}
+        </div>
+
+        {/* Model selector */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.1em" }}>MODEL</span>
+          <select
+            value={ollamaModel}
+            onChange={e => setOllamaModel(e.target.value)}
+            style={{
+              background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 8,
+              padding: "5px 10px", fontSize: 11, color: T.text, fontFamily: "inherit",
+              fontWeight: 700, cursor: "pointer", outline: "none"
+            }}
+          >
+            {availableModels.length > 0
+              ? availableModels.map(m => <option key={m} value={m}>{m}</option>)
+              : OLLAMA_TOOL_MODELS.map(m => <option key={m} value={m}>{m}</option>)
+            }
+          </select>
+        </div>
+
+        {/* Settings toggle */}
+        <button onClick={() => setShowSettings(s => !s)} style={{
+          padding: "7px 12px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit",
+          fontSize: 12, fontWeight: 700, background: showSettings ? `${T.indigo}18` : "transparent",
+          border: `1.5px solid ${showSettings ? T.borderHi : T.border}`, color: showSettings ? T.indigoLt : T.muted
+        }}>⚙ Config</button>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {["list_tickets","create_ticket","get_sprint_summary"].map(t => (
+            <Tag key={t} color={T.indigo} size={9}>{t}</Tag>
+          ))}
+          <Tag color={T.dim} size={9}>+4 more</Tag>
+        </div>
+      </div>
+
+      {/* ── Settings panel ── */}
+      {showSettings && (
+        <div style={{
+          padding: "14px 18px", background: `${T.indigo}07`,
+          border: `1px solid ${T.borderHi}`, borderRadius: 12, margin: "10px 0 0",
+          display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", flexShrink: 0
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: T.indigoLt, letterSpacing: "0.08em" }}>⚙ OLLAMA CONFIG</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+            <span style={{ fontSize: 11, color: T.muted, fontWeight: 700, whiteSpace: "nowrap" }}>Host URL</span>
+            <input
+              value={ollamaHost}
+              onChange={e => setOllamaHost(e.target.value)}
+              style={{
+                flex: 1, background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 8,
+                padding: "6px 12px", fontSize: 11, color: T.text, fontFamily: "monospace", outline: "none"
+              }}
+              placeholder="http://localhost:11434"
+            />
+          </div>
+          <div style={{ fontSize: 10, color: T.dim, lineHeight: 1.7 }}>
+            Start Ollama with CORS:<br />
+            <code style={{ background: "rgba(0,0,0,0.06)", padding: "2px 6px", borderRadius: 4, fontSize: 10 }}>
+              OLLAMA_ORIGINS=* ollama serve
+            </code>
+          </div>
+          <div style={{ fontSize: 10, color: T.dim, lineHeight: 1.7 }}>
+            Recommended models (tool support):<br />
+            <code style={{ background: "rgba(0,0,0,0.06)", padding: "2px 6px", borderRadius: 4, fontSize: 10 }}>
+              ollama pull llama3.1 · qwen2.5 · mistral-nemo
+            </code>
+          </div>
+          {availableModels.length > 0 && (
+            <div style={{ fontSize: 10, color: T.green, fontWeight: 700 }}>
+              ✓ {availableModels.length} model{availableModels.length !== 1 ? "s" : ""} detected
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Offline warning banner ── */}
+      {ollamaStatus === "offline" && (
+        <div style={{
+          margin: "10px 0 0", padding: "12px 16px", background: `${T.red}0d`,
+          border: `1.5px solid ${T.red}33`, borderRadius: 10, fontSize: 11, color: T.red, flexShrink: 0
+        }}>
+          ⚠️ <strong>Ollama is not reachable</strong> at <code style={{ background: "rgba(0,0,0,0.06)", padding: "1px 5px", borderRadius: 4 }}>{ollamaHost}</code>.
+          &nbsp;Run <code style={{ background: "rgba(0,0,0,0.06)", padding: "1px 5px", borderRadius: 4 }}>OLLAMA_ORIGINS=* ollama serve</code> and refresh.
+        </div>
+      )}
+
+      {/* ── Messages ── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 0 8px", display: "flex", flexDirection: "column", gap: 16 }}>
+        {messages.map(msg => (
+          <div key={msg.id} style={{
+            display: "flex", gap: 12, flexDirection: msg.role === "user" ? "row-reverse" : "row",
+            alignItems: "flex-start"
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+              background: msg.role === "user"
+                ? `linear-gradient(135deg,${T.indigo},${T.purple})`
+                : "linear-gradient(135deg,#0052CC,#2684FF)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+            }}>
+              {msg.role === "user" ? "👤" : "🤖"}
+            </div>
+            <div style={{
+              maxWidth: "72%",
+              background: msg.role === "user" ? `linear-gradient(135deg,${T.indigo},${T.purple})` : T.surface,
+              color: msg.role === "user" ? "#fff" : T.text,
+              border: msg.role === "user" ? "none" : `1px solid ${T.border}`,
+              borderRadius: msg.role === "user" ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+              padding: "12px 16px", fontSize: 13, lineHeight: 1.65,
+              boxShadow: msg.role === "user" ? `0 4px 20px ${T.indigo}33` : "0 2px 12px rgba(0,0,0,0.04)"
+            }}>
+              {/* Content */}
+              {msg.content
+                ? <div>{renderMd(msg.content)}</div>
+                : (msg.streaming && loading)
+                  ? <div style={{ display: "flex", gap: 4, alignItems: "center", padding: "4px 0" }}>
+                      {[0,1,2].map(i => (
+                        <div key={i} style={{
+                          width: 6, height: 6, borderRadius: "50%", background: "#2684FF",
+                          animation: "bounce 1.2s infinite", animationDelay: `${i*0.2}s`
+                        }} />
+                      ))}
+                      <span style={{ fontSize: 10, color: T.dim, marginLeft: 4 }}>
+                        {ollamaModel} is thinking…
+                      </span>
+                    </div>
+                  : null
+              }
+              {/* Tool calls */}
+              {msg.toolCalls && msg.toolCalls.length > 0 && (
+                <div style={{ marginTop: msg.content ? 10 : 0 }}>
+                  {msg.toolCalls.map((call, i) => <ToolCallBubble key={i} call={call} />)}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* ── Quick prompts ── */}
+      {messages.length <= 2 && (
+        <div style={{ padding: "10px 0 8px", flexShrink: 0 }}>
+          <div style={{ fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.12em", marginBottom: 8 }}>QUICK ACTIONS</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {QUICK_PROMPTS.map(p => (
+              <button key={p} onClick={() => sendMessage(p)} disabled={ollamaStatus !== "online"} style={{
+                padding: "7px 14px", borderRadius: 20, cursor: ollamaStatus === "online" ? "pointer" : "default",
+                fontSize: 11, fontWeight: 600,
+                background: "rgba(99,102,241,0.08)", border: `1.5px solid ${T.borderHi}`,
+                color: ollamaStatus === "online" ? T.indigoLt : T.dim, fontFamily: "inherit",
+                opacity: ollamaStatus === "online" ? 1 : 0.5
+              }}>{p}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Input bar ── */}
+      <div style={{
+        flexShrink: 0, padding: "12px 0 0",
+        borderTop: `1px solid ${T.border}`,
+        display: "flex", gap: 10, alignItems: "flex-end"
+      }}>
+        <div style={{ flex: 1 }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
+            placeholder={ollamaStatus === "offline"
+              ? "Start Ollama first: OLLAMA_ORIGINS=* ollama serve"
+              : `Ask about Jira tickets… · ${ollamaModel} · Enter to send`}
+            disabled={ollamaStatus === "offline"}
+            rows={2}
+            style={{
+              width: "100%", background: ollamaStatus === "offline" ? T.elevated : T.surface,
+              border: `1.5px solid ${loading ? T.borderHi : T.border}`,
+              borderRadius: 14, padding: "12px 16px", fontSize: 13, color: T.text,
+              fontFamily: "inherit", resize: "none", outline: "none", lineHeight: 1.5,
+              boxSizing: "border-box", transition: "border-color 0.2s ease",
+              boxShadow: loading ? `0 0 0 3px ${T.indigo}14` : "none",
+              opacity: ollamaStatus === "offline" ? 0.6 : 1,
+            }}
+          />
+        </div>
+        <button
+          onClick={() => sendMessage(input)}
+          disabled={loading || !input.trim() || ollamaStatus !== "online"}
+          style={{
+            height: 48, minWidth: 48, borderRadius: 12,
+            cursor: (loading || !input.trim() || ollamaStatus !== "online") ? "default" : "pointer",
+            background: (loading || !input.trim() || ollamaStatus !== "online")
+              ? T.elevated
+              : "linear-gradient(135deg,#0052CC,#2684FF)",
+            border: "none",
+            color: (loading || !input.trim() || ollamaStatus !== "online") ? T.dim : "#fff",
+            fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, transition: "all 0.2s ease",
+            boxShadow: (loading || !input.trim() || ollamaStatus !== "online") ? "none" : "0 4px 16px #0052CC44",
+          }}
+        >
+          {loading ? "⏳" : "➤"}
+        </button>
+      </div>
+
+      <style>{`@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}`}</style>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -5940,6 +6787,7 @@ const PAGES = [
   { id: "zkp",        label: "ZK Proof Verification", icon: "🔐" },
   { id: "qualityscore", label: "AI Quality Scoring",   icon: "🧠" },
   { id: "hiddenwk",    label: "Hidden Work Detector",  icon: "👁" },
+  { id: "jira",        label: "Jira Agent",             icon: "🤖" },
 ];
 
 export default function DevIQ() {
@@ -6110,6 +6958,7 @@ export default function DevIQ() {
           {page === "zkp" && <ZKPPage data={context} />}
           {page === "qualityscore" && <AIQualityScoringPage data={context} />}
           {page === "hiddenwk" && <HiddenWorkPage data={context} />}
+          {page === "jira"     && <JiraAgentPage data={context} />}
         </main>
       </div>
     </div>
