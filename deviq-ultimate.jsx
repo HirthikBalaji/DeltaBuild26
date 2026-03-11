@@ -3842,6 +3842,574 @@ function WCISPage({data}){
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   BLOCKCHAIN-ANCHORED CONTRIBUTION LEDGER
+═════════════════════════════════════════════════════════════════ */
+
+// Deterministic hash simulation (SHA-256-style hex string)
+function mockHash(input) {
+  let h = 0x811c9dc5n;
+  const str = JSON.stringify(input);
+  for (let i = 0; i < str.length; i++) {
+    h ^= BigInt(str.charCodeAt(i));
+    h = (h * 0x01000193n) & 0xFFFFFFFFFFFFFFFFn;
+  }
+  return h.toString(16).padStart(16, "0") + (h * 0xdeadbeefn & 0xFFFFFFFFFFFFFFFFn).toString(16).padStart(16, "0") +
+    (h ^ 0xabcdef01n).toString(16).padStart(16, "0") + (h * 0x13n & 0xFFFFFFFFFFFFFFFFn).toString(16).padStart(16, "0");
+}
+
+function shortHash(h) { return h ? h.slice(0, 8) + "…" + h.slice(-6) : ""; }
+
+function buildLedger(devs) {
+  const txTypes = [
+    { type: "commit", icon: "⬡", color: T.indigo, label: "Code Commit" },
+    { type: "task", icon: "✦", color: T.teal, label: "Task Complete" },
+    { type: "review", icon: "◈", color: T.amber, label: "Code Review" },
+    { type: "collab", icon: "⬢", color: T.purple, label: "Collaboration" },
+    { type: "milestone", icon: "▲", color: T.green, label: "Milestone" },
+  ];
+  const projects = ["auth-service", "wallet.py", "payments-api", "ui-redesign", "data-pipeline", "infra-k8s"];
+  const blocks = [];
+  let prevHash = "0000000000000000000000000000000000000000000000000000000000000000";
+  let blockNum = 1;
+  let entries = [];
+
+  devs.forEach((dev, di) => {
+    // commits → entries
+    const numTx = Math.min(dev.commits, 6);
+    for (let i = 0; i < numTx; i++) {
+      const tx = txTypes[Math.abs((di * 7 + i * 3) % txTypes.length)];
+      const proj = projects[(di * 5 + i * 2) % projects.length];
+      const linesChanged = Math.round((dev.additions / Math.max(dev.commits, 1)) * (0.6 + i * 0.1));
+      const ts = new Date(Date.now() - (di * 86400000 + i * 3600000 * 4));
+      const payload = { dev: dev.name, type: tx.type, project: proj, lines: linesChanged, ts: ts.toISOString() };
+      const hash = mockHash(payload);
+      entries.push({ id: `tx-${di}-${i}`, ...tx, dev: dev.name, avatar: dev.avatar, project: proj, lines: linesChanged, ts, hash, payload });
+    }
+
+    // reviews
+    if (dev.jira?.comments > 2) {
+      const ts = new Date(Date.now() - di * 43200000);
+      const payload = { dev: dev.name, type: "review", comments: dev.jira.comments, ts: ts.toISOString() };
+      const hash = mockHash(payload);
+      entries.push({ id: `rx-${di}`, ...txTypes[2], dev: dev.name, avatar: dev.avatar, project: projects[di % projects.length], lines: dev.jira.comments * 3, ts, hash, payload });
+    }
+
+    // milestone if high contribution
+    if (dev.contribution > 70) {
+      const ts = new Date(Date.now() - di * 21600000);
+      const payload = { dev: dev.name, type: "milestone", contribution: dev.contribution, ts: ts.toISOString() };
+      const hash = mockHash(payload);
+      entries.push({ id: `ms-${di}`, ...txTypes[4], dev: dev.name, avatar: dev.avatar, project: "all-projects", lines: 0, ts, hash, payload });
+    }
+  });
+
+  // Sort by timestamp descending
+  entries.sort((a, b) => b.ts - a.ts);
+
+  // Group into blocks of 3-5 entries
+  let i = 0, blk = 1;
+  while (i < entries.length) {
+    const size = 3 + (blk % 3);
+    const blockEntries = entries.slice(i, i + size);
+    const merkleRoot = mockHash(blockEntries.map(e => e.hash));
+    const blockHash = mockHash({ blk, prevHash, merkleRoot, ts: blockEntries[0]?.ts });
+    blocks.push({ id: blk, hash: blockHash, prevHash, merkleRoot, entries: blockEntries, ts: blockEntries[0]?.ts, status: blk <= 2 ? "confirmed" : "pending" });
+    prevHash = blockHash;
+    i += size;
+    blk++;
+  }
+
+  return { blocks, entries };
+}
+
+// Smart contract threshold definitions
+const SMART_CONTRACTS = [
+  { id: "sc-001", name: "Sprint Champion", threshold: 60, metric: "contribution", reward: "🥇 $500 Bonus", icon: "🏆", color: T.amber },
+  { id: "sc-002", name: "Code Quality Gate", threshold: 5, metric: "reviews", reward: "📜 Cert of Excellence", icon: "⭐", color: T.teal },
+  { id: "sc-003", name: "Senior Promotion", threshold: 200, metric: "commits", reward: "🚀 Senior Title", icon: "🔼", color: T.indigo },
+  { id: "sc-004", name: "Milestone Achiever", threshold: 3, metric: "milestones", reward: "🌟 Extra PTO (2 days)", icon: "✦", color: T.purple },
+];
+
+function HashChainViz({ blocks }) {
+  return (
+    <div style={{ overflowX: "auto", paddingBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 0, minWidth: blocks.length * 140 }}>
+        {blocks.map((block, i) => (
+          <div key={block.id} style={{ display: "flex", alignItems: "center" }}>
+            <div style={{
+              padding: "12px 14px", borderRadius: 12,
+              background: block.status === "confirmed" ? `${T.green}12` : `${T.amber}12`,
+              border: `1.5px solid ${block.status === "confirmed" ? T.green : T.amber}44`,
+              minWidth: 120, textAlign: "center", flexShrink: 0
+            }}>
+              <div style={{ fontSize: 9, color: T.dim, fontWeight: 800, letterSpacing: "0.1em", marginBottom: 4 }}>BLOCK #{block.id}</div>
+              <div style={{ fontSize: 8, fontFamily: "monospace", color: block.status === "confirmed" ? T.green : T.amber, fontWeight: 700, wordBreak: "break-all", marginBottom: 4 }}>
+                {shortHash(block.hash)}
+              </div>
+              <div style={{ fontSize: 8, color: T.dim, marginBottom: 2 }}>{block.entries.length} txns</div>
+              <div style={{
+                display: "inline-block", fontSize: 8, padding: "2px 8px", borderRadius: 6,
+                background: block.status === "confirmed" ? `${T.green}20` : `${T.amber}20`,
+                color: block.status === "confirmed" ? T.green : T.amber, fontWeight: 700
+              }}>{block.status === "confirmed" ? "✓ CONFIRMED" : "⏳ PENDING"}</div>
+            </div>
+            {i < blocks.length - 1 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 2, margin: "0 4px" }}>
+                <div style={{ height: 2, width: 16, background: `${T.indigo}60` }} />
+                <span style={{ fontSize: 10, color: T.indigo }}>⛓</span>
+                <div style={{ height: 2, width: 16, background: `${T.indigo}60` }} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SmartContractStatus({ devs }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {SMART_CONTRACTS.map(sc => {
+        const triggered = devs.filter(dev => {
+          if (sc.metric === "contribution") return dev.contribution >= sc.threshold;
+          if (sc.metric === "reviews") return (dev.jira?.comments || 0) >= sc.threshold;
+          if (sc.metric === "commits") return dev.commits >= sc.threshold;
+          if (sc.metric === "milestones") return dev.contribution > 70;
+          return false;
+        });
+        const pct = Math.min(Math.round((triggered.length / Math.max(devs.length, 1)) * 100), 100);
+        return (
+          <div key={sc.id} style={{
+            padding: "14px 18px", borderRadius: 12, border: `1.5px solid ${sc.color}30`,
+            background: triggered.length > 0 ? `${sc.color}08` : T.elevated,
+            display: "flex", alignItems: "center", gap: 14
+          }}>
+            <div style={{ fontSize: 22, flexShrink: 0 }}>{sc.icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: T.text }}>{sc.name}</span>
+                <span style={{ fontSize: 10, color: sc.color, fontWeight: 700 }}>{triggered.length} triggered</span>
+              </div>
+              <Bar value={pct} color={sc.color} h={5} />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                <span style={{ fontSize: 9, color: T.dim }}>Reward: <strong style={{ color: sc.color }}>{sc.reward}</strong></span>
+                <span style={{ fontSize: 9, color: T.dim, fontFamily: "monospace" }}>{sc.id}</span>
+              </div>
+            </div>
+            {triggered.length > 0 && (
+              <div style={{
+                flexShrink: 0, padding: "5px 10px", borderRadius: 8,
+                background: `${sc.color}20`, border: `1px solid ${sc.color}40`,
+                fontSize: 9, color: sc.color, fontWeight: 800
+              }}>AUTO-TRIGGERED</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ExportProofPanel({ entry, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const proof = {
+    version: "DEVIQ-PROOF-v1.0",
+    transaction_id: entry.id,
+    type: entry.type,
+    developer: entry.dev,
+    project: entry.project,
+    timestamp: entry.ts?.toISOString(),
+    hash: entry.hash,
+    merkle_proof: mockHash({ id: entry.id, ts: Date.now() }),
+    verified_by: "DevIQ Blockchain Network",
+    portable: true,
+  };
+  const proofStr = JSON.stringify(proof, null, 2);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center"
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.surface, borderRadius: 18, padding: 28, width: 520, maxHeight: "80vh",
+        overflowY: "auto", border: `2px solid ${T.green}40`, boxShadow: `0 16px 48px ${T.green}20`
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+          <span style={{ fontSize: 22 }}>📤</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: T.green }}>Export Contribution Proof</span>
+          <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: T.dim }}>✕</button>
+        </div>
+        <div style={{ fontSize: 10, color: T.muted, marginBottom: 10 }}>Verified, portable proof — import this into your resume/portfolio tool.</div>
+        <pre style={{
+          fontSize: 9, background: T.elevated, padding: "14px", borderRadius: 10,
+          overflowX: "auto", color: T.teal, lineHeight: 1.7, fontFamily: "monospace",
+          border: `1px solid ${T.green}20`
+        }}>{proofStr}</pre>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button onClick={() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+            style={{ flex: 1, padding: "10px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 12, background: T.green, color: "white", border: "none" }}>
+            {copied ? "✓ Copied!" : "📋 Copy JSON Proof"}
+          </button>
+          <button onClick={onClose}
+            style={{ flex: 1, padding: "10px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 12, background: "transparent", border: `1.5px solid ${T.border}`, color: T.muted }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BlockchainLedgerPage({ data }) {
+  const [activeTab, setActiveTab] = useState("ledger");
+  const [filterDev, setFilterDev] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [expandedBlock, setExpandedBlock] = useState(null);
+  const [exportEntry, setExportEntry] = useState(null);
+  const [animating, setAnimating] = useState(false);
+  const [newTxCount, setNewTxCount] = useState(0);
+
+  const { blocks, entries } = useMemo(() => buildLedger(data.devs), [data.devs]);
+
+  // Simulate incoming transactions
+  useEffect(() => {
+    const i = setInterval(() => {
+      setAnimating(true);
+      setNewTxCount(c => c + 1);
+      setTimeout(() => setAnimating(false), 1200);
+    }, 8000);
+    return () => clearInterval(i);
+  }, []);
+
+  const filtered = entries.filter(e =>
+    (filterDev === "all" || e.dev === filterDev) &&
+    (filterType === "all" || e.type === filterType)
+  );
+
+  const totalTx = entries.length + newTxCount;
+  const confirmedBlocks = blocks.filter(b => b.status === "confirmed").length;
+
+  const tabs = [
+    { id: "ledger", label: "📋 Transaction Ledger" },
+    { id: "chain", label: "⛓ Block Explorer" },
+    { id: "contracts", label: "📜 Smart Contracts" },
+    { id: "verify", label: "🔍 Verify Proof" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {exportEntry && <ExportProofPanel entry={exportEntry} onClose={() => setExportEntry(null)} />}
+
+      {/* Header */}
+      <Card glow={T.indigo}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 24 }}>⛓</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.indigo, textTransform: "uppercase", letterSpacing: "0.06em" }}>Blockchain-Anchored Contribution Ledger</span>
+              <Tag color={T.green} size={9}>ON-CHAIN v1.0</Tag>
+              {animating && <Tag color={T.amber} size={9}>⚡ NEW TX</Tag>}
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.9 }}>
+              Every contribution is <strong style={{ color: T.text }}>hashed & recorded on-chain</strong>. Immutable audit trail — no retroactive edits.
+              Smart contracts <strong style={{ color: T.green }}>auto-trigger rewards</strong> when thresholds are met. Export verified proofs for resumes.
+            </div>
+          </div>
+          {/* KPIs */}
+          <div style={{ display: "flex", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+            {[
+              { label: "Total Txns", value: totalTx, color: T.indigo, icon: "⬡" },
+              { label: "Confirmed Blocks", value: confirmedBlocks, color: T.green, icon: "⬢" },
+              { label: "Pending", value: blocks.length - confirmedBlocks, color: T.amber, icon: "◈" },
+              { label: "Contracts", value: SMART_CONTRACTS.length, color: T.purple, icon: "📜" },
+            ].map(k => (
+              <div key={k.label} style={{
+                padding: "12px 16px", borderRadius: 12, textAlign: "center",
+                background: `${k.color}0d`, border: `1.5px solid ${k.color}28`, minWidth: 80
+              }}>
+                <div style={{ fontSize: 14, color: k.color, marginBottom: 2 }}>{k.icon}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: k.color, lineHeight: 1 }}>{k.value}</div>
+                <div style={{ fontSize: 9, color: T.dim, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.07em" }}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: "9px 20px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            fontFamily: "inherit", border: "none",
+            background: activeTab === t.id ? T.indigo : T.elevated,
+            color: activeTab === t.id ? "#fff" : T.muted,
+            transition: "all 0.15s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* TAB: LEDGER */}
+      {activeTab === "ledger" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Filters */}
+          <Card style={{ padding: "16px 20px" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: T.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Filter by:</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {["all", ...data.devs.map(d => d.name)].map(n => (
+                  <button key={n} onClick={() => setFilterDev(n)} style={{
+                    padding: "5px 12px", borderRadius: 7, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                    background: filterDev === n ? `${T.indigo}18` : "transparent",
+                    border: `1.5px solid ${filterDev === n ? T.indigo : T.border}`,
+                    color: filterDev === n ? T.indigo : T.muted, fontWeight: filterDev === n ? 700 : 500
+                  }}>{n === "all" ? "All Devs" : n.split(" ")[0]}</button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
+                {["all", "commit", "task", "review", "collab", "milestone"].map(t => (
+                  <button key={t} onClick={() => setFilterType(t)} style={{
+                    padding: "5px 12px", borderRadius: 7, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                    background: filterType === t ? `${T.teal}18` : "transparent",
+                    border: `1.5px solid ${filterType === t ? T.teal : T.border}`,
+                    color: filterType === t ? T.teal : T.muted, fontWeight: filterType === t ? 700 : 500,
+                    textTransform: "capitalize"
+                  }}>{t === "all" ? "All Types" : t}</button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* Ledger entries */}
+          <Card>
+            <SH icon="⛓" title={`Transaction Ledger (${filtered.length} entries)`} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filtered.map((entry, idx) => (
+                <div key={entry.id} style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                  background: T.elevated, borderRadius: 12,
+                  border: `1px solid ${entry.color}22`,
+                  transition: "all 0.2s",
+                  opacity: animating && idx === 0 ? 0.7 : 1,
+                  transform: animating && idx === 0 ? "translateX(4px)" : "none"
+                }}>
+                  {/* Type icon */}
+                  <div style={{
+                    width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                    background: `${entry.color}18`, border: `1.5px solid ${entry.color}30`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 16, color: entry.color
+                  }}>{entry.icon}</div>
+
+                  {/* Dev avatar + name */}
+                  <div style={{ flexShrink: 0, textAlign: "center", width: 48 }}>
+                    <div style={{ fontSize: 16 }}>{entry.avatar}</div>
+                    <div style={{ fontSize: 8, color: T.dim, fontWeight: 700 }}>{entry.dev.split(" ")[0]}</div>
+                  </div>
+
+                  {/* Details */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{entry.label}</span>
+                      <Tag color={entry.color} size={8}>{entry.project}</Tag>
+                      {entry.lines > 0 && <span style={{ fontSize: 10, color: T.dim }}>+{entry.lines} lines</span>}
+                    </div>
+                    <div style={{ fontSize: 9, fontFamily: "monospace", color: T.dim, display: "flex", gap: 10 }}>
+                      <span style={{ color: T.indigoLt }}>#{shortHash(entry.hash)}</span>
+                      <span>{entry.ts?.toLocaleDateString()} {entry.ts?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  </div>
+
+                  {/* Verified badge */}
+                  <div style={{
+                    flexShrink: 0, padding: "4px 10px", borderRadius: 7,
+                    background: `${T.green}15`, border: `1px solid ${T.green}30`,
+                    fontSize: 9, color: T.green, fontWeight: 800
+                  }}>✓ VERIFIED</div>
+
+                  {/* Export button */}
+                  <button onClick={() => setExportEntry(entry)} style={{
+                    flexShrink: 0, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 10, fontWeight: 700,
+                    background: `${T.indigo}12`, border: `1.5px solid ${T.indigo}30`, color: T.indigo
+                  }}>📤 Export Proof</button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB: BLOCK EXPLORER */}
+      {activeTab === "chain" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card glow={T.indigo}>
+            <SH icon="⛓" title="Hash Chain Visualizer" />
+            <HashChainViz blocks={blocks} />
+          </Card>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {blocks.map(block => (
+              <Card key={block.id} glow={block.status === "confirmed" ? T.green : T.amber}>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
+                  onClick={() => setExpandedBlock(expandedBlock === block.id ? null : block.id)}
+                >
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+                    background: block.status === "confirmed" ? `${T.green}15` : `${T.amber}15`,
+                    border: `2px solid ${block.status === "confirmed" ? T.green : T.amber}40`,
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center"
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: block.status === "confirmed" ? T.green : T.amber }}>#{block.id}</div>
+                    <div style={{ fontSize: 8, color: T.dim }}>BLK</div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: T.text }}>Block #{block.id}</span>
+                      <Tag color={block.status === "confirmed" ? T.green : T.amber} size={8}>{block.status.toUpperCase()}</Tag>
+                      <span style={{ fontSize: 10, color: T.dim }}>{block.entries.length} transactions</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 16, fontSize: 9, fontFamily: "monospace", color: T.dim }}>
+                      <span>Hash: <span style={{ color: T.indigoLt }}>{shortHash(block.hash)}</span></span>
+                      <span>Prev: <span style={{ color: T.teal }}>{shortHash(block.prevHash)}</span></span>
+                      <span>Merkle: <span style={{ color: T.purple }}>{shortHash(block.merkleRoot)}</span></span>
+                    </div>
+                  </div>
+                  <span style={{ color: T.dim, fontSize: 12 }}>{expandedBlock === block.id ? "▲" : "▼"}</span>
+                </div>
+
+                {expandedBlock === block.id && (
+                  <div style={{ marginTop: 14, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+                    <div style={{ fontSize: 10, color: T.dim, fontWeight: 700, marginBottom: 10, letterSpacing: "0.08em" }}>BLOCK CONTENTS</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {block.entries.map(entry => (
+                        <div key={entry.id} style={{
+                          display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                          background: T.bg, borderRadius: 8, fontSize: 10
+                        }}>
+                          <span style={{ color: entry.color }}>{entry.icon}</span>
+                          <span style={{ fontWeight: 700, color: T.text }}>{entry.dev.split(" ")[0]}</span>
+                          <span style={{ color: T.muted }}>{entry.label} → {entry.project}</span>
+                          <span style={{ marginLeft: "auto", fontFamily: "monospace", color: T.dim }}>{shortHash(entry.hash)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 12, padding: "10px 14px", background: `${T.indigo}08`, borderRadius: 8, fontSize: 9, fontFamily: "monospace", color: T.muted }}>
+                      <div><strong>Block Hash:</strong> {block.hash}</div>
+                      <div style={{ marginTop: 4 }}><strong>Prev Hash:</strong> {block.prevHash}</div>
+                      <div style={{ marginTop: 4 }}><strong>Merkle Root:</strong> {block.merkleRoot}</div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: SMART CONTRACTS */}
+      {activeTab === "contracts" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card glow={T.purple}>
+            <SH icon="📜" title="Auto-Executing Smart Contracts" />
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>
+              Contracts monitor on-chain metrics in real-time. When a developer's verified contributions cross a threshold,
+              the contract <strong style={{ color: T.green }}>auto-triggers</strong> — no manager approval needed. All triggers are immutably logged.
+            </div>
+            <SmartContractStatus devs={data.devs} />
+          </Card>
+
+          <Card>
+            <SH icon="⚡" title="Contract Trigger History" />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {data.devs.filter(d => d.contribution > 55).map((dev, i) => {
+                const sc = SMART_CONTRACTS[i % SMART_CONTRACTS.length];
+                const ts = new Date(Date.now() - i * 86400000 * 2);
+                return (
+                  <div key={dev.name} style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                    background: T.elevated, borderRadius: 10, border: `1px solid ${sc.color}25`
+                  }}>
+                    <span style={{ fontSize: 18 }}>{sc.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{dev.avatar} {dev.name} — {sc.name}</div>
+                      <div style={{ fontSize: 9, color: T.dim, marginTop: 2 }}>Triggered: {ts.toLocaleDateString()} at {ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · Reward: <strong style={{ color: sc.color }}>{sc.reward}</strong></div>
+                    </div>
+                    <div style={{
+                      padding: "4px 10px", borderRadius: 7, fontSize: 9, fontWeight: 800,
+                      background: `${T.green}15`, color: T.green, border: `1px solid ${T.green}30`
+                    }}>✓ EXECUTED</div>
+                    <div style={{ fontSize: 9, fontFamily: "monospace", color: T.dim }}>{shortHash(mockHash({ dev: dev.name, sc: sc.id, ts: ts.toISOString() }))}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB: VERIFY */}
+      {activeTab === "verify" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card glow={T.teal}>
+            <SH icon="🔍" title="Verify Contribution Proof" />
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>
+              Paste any exported proof JSON below to verify its authenticity against the on-chain hash. Tamper-evident — any modification invalidates the proof.
+            </div>
+            <div style={{ padding: "14px", background: T.elevated, borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 14 }}>
+              <textarea style={{
+                width: "100%", minHeight: 120, background: "transparent", border: "none",
+                fontFamily: "monospace", fontSize: 10, color: T.teal, resize: "vertical",
+                outline: "none", boxSizing: "border-box"
+              }} placeholder='{ "version": "DEVIQ-PROOF-v1.0", "hash": "..." }' />
+            </div>
+            <button style={{
+              padding: "10px 24px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit",
+              fontWeight: 800, fontSize: 12, background: T.teal, color: "white", border: "none"
+            }}>🔍 Verify On-Chain Hash</button>
+          </Card>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <Card>
+              <SH icon="✓" title="Recent Verifications" />
+              {entries.slice(0, 5).map(e => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}` }}>
+                  <span style={{ fontSize: 12, color: T.green }}>✓</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{e.dev.split(" ")[0]} · {e.label}</div>
+                    <div style={{ fontSize: 9, fontFamily: "monospace", color: T.dim }}>{shortHash(e.hash)}</div>
+                  </div>
+                  <Tag color={T.green} size={8}>VALID</Tag>
+                </div>
+              ))}
+            </Card>
+            <Card>
+              <SH icon="🔐" title="Proof Schema" />
+              <pre style={{ fontSize: 9, color: T.teal, fontFamily: "monospace", lineHeight: 1.8, background: T.elevated, padding: "12px", borderRadius: 8, overflowX: "auto" }}>
+{`{
+  version: "DEVIQ-PROOF-v1.0",
+  transaction_id: string,
+  type: commit|task|review,
+  developer: string,
+  project: string,
+  timestamp: ISO8601,
+  hash: SHA-256 hex,
+  merkle_proof: hex,
+  verified_by: string,
+  portable: boolean
+}`}
+              </pre>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -3859,6 +4427,7 @@ const PAGES = [
   { id: "knowledge", label: "Knowledge Graph",      icon: "🧠" },
   { id: "darkmatter",label: "Dark Matter",          icon: "🌑" },
   { id: "wcis",      label: "Contribution Portfolio", icon: "🏛" },
+  { id: "blockchain", label: "Blockchain Ledger",     icon: "⛓" },
 ];
 
 export default function DevIQ() {
@@ -4025,6 +4594,7 @@ export default function DevIQ() {
           {page === "knowledge" && <KnowledgeGraphPage data={context} />}
           {page === "darkmatter" && <DarkMatterPage data={context} />}
           {page === "wcis" && <WCISPage data={context} />}
+          {page === "blockchain" && <BlockchainLedgerPage data={context} />}
         </main>
       </div>
     </div>
