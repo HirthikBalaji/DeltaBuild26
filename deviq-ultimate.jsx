@@ -18,6 +18,54 @@ const bl = s => s >= 80 ? "Burnout Risk" : s >= 60 ? "High Workload" : s >= 35 ?
 const fmt = n => typeof n === "number" ? n.toLocaleString() : n;
 
 /* ─────────────────────────────────────────────────────────────────
+   MATH-BASED DNA ENGINE
+   Mirrors the Python fallback formulas in main.py exactly.
+   Called when dev.dna is null (backend hasn't run Ollama yet).
+───────────────────────────────────────────────────────────────── */
+function calcDNA(dev) {
+  const commits   = Math.max(dev.commits || 1, 1);
+  const additions = dev.additions || 0;
+  const files     = dev.files || 0;
+  const flowScore = dev.flow?.score || 50;
+  const todoTasks = dev.jira?.todo || 0;
+  const totalTasks= Math.max(dev.jira?.total || 1, 1);
+  const comments  = dev.jira?.comments || 0;
+  const directive = dev.psych?.directive || 0;
+  const burnout   = dev.burnout || 0;
+  const slope     = dev.burnout_traj?.slope || 0;
+
+  const dna = {
+    logic:      Math.min(Math.round((additions / commits) * 3), 100),
+    refactor:   Math.min(Math.round((files / commits) * 25), 100),
+    bugs:       Math.min(Math.round((todoTasks / totalTasks) * 50 + (100 - flowScore) * 0.5), 100),
+    review:     Math.min(Math.round((comments / 10 + directive) * 5), 100),
+    risk:       Math.min(Math.max(Math.round(100 - burnout - slope * 5), 10), 100),
+    innovation: Math.min(Math.round(flowScore * 0.7 + files * 1.5), 100),
+  };
+
+  const archetypeMap = {
+    logic: "The Architect", refactor: "The Purifier", bugs: "The Chaos Engineer",
+    review: "The Guardian", risk: "The Trailblazer", innovation: "The Innovator",
+  };
+  const highest = Object.entries(dna).sort((a, b) => b[1] - a[1])[0][0];
+  const archetype = archetypeMap[highest] || "The Generalist";
+
+  const dna_applications = {
+    team_building: `Pairs best with: ${["logic","innovation","risk"].includes(highest) ? "The Purifier" : "The Architect"}`,
+    mentoring: highest === "bugs"
+      ? "Focus on lowering bug injection rate."
+      : highest === "logic"
+      ? "Encourage sharing broad architectural knowledge."
+      : "Coach on balancing speed with strict review standards.",
+    placement: ["innovation","risk"].includes(highest)
+      ? "Greenfield projects / Prototypes"
+      : "Core stable systems / Refactoring legacy code",
+  };
+
+  return { dna, archetype, dna_applications };
+}
+
+/* ─────────────────────────────────────────────────────────────────
    DYNAMIC DATA HOOK
 ───────────────────────────────────────────────────────────────── */
 function useDevIQData() {
@@ -28,6 +76,16 @@ function useDevIQData() {
     ev.onmessage = (e) => {
       const parsed = JSON.parse(e.data);
       if (parsed) {
+        // Fill in DNA via math for any dev where Ollama hasn't run yet
+        if (parsed.devs) {
+          parsed.devs = parsed.devs.map(dev => {
+            if (!dev.dna) {
+              const { dna, archetype, dna_applications } = calcDNA(dev);
+              return { ...dev, dna, archetype, dna_applications };
+            }
+            return dev;
+          });
+        }
         setData({ ...parsed, loading: false });
       }
     };
@@ -293,6 +351,65 @@ function Radar({ dims, size = 160, color = T.indigo }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   DNA RADAR CHART
+───────────────────────────────────────────────────────────────── */
+function DNARadar({ dna, size = 200, color = T.teal }) {
+  if (!dna) return null;
+  const axes = [
+    { l: "Logic", k: "logic" }, { l: "Refactor", k: "refactor" }, { l: "Bugs", k: "bugs" },
+    { l: "Review", k: "review" }, { l: "Risk", k: "risk" }, { l: "Innovation", k: "innovation" }
+  ];
+  const n = axes.length, cx = size / 2, cy = size / 2, R = size / 2 - 30;
+  const angle = i => (i / n) * 2 * Math.PI - Math.PI / 2;
+  const pt = (i, r) => ({ x: cx + r * Math.cos(angle(i)), y: cy + r * Math.sin(angle(i)) });
+  const valuePath = axes.map((a, i) => { const p = pt(i, (dna[a.k] || 0) / 100 * R); return `${i === 0 ? "M" : "L"}${p.x},${p.y}`; }).join(" ") + "Z";
+
+  return (
+    <div style={{ position: "relative", width: size, height: size, margin: "0 auto" }}>
+      <svg width={size} height={size}>
+        <defs>
+          <radialGradient id={`dna-grad-${color}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.05" />
+          </radialGradient>
+        </defs>
+
+        {/* Hexagon Grid */}
+        {[0.33, 0.66, 1].map(lv => (
+          <polygon key={lv} points={axes.map((_, i) => { const p = pt(i, R * lv); return `${p.x},${p.y}`; }).join(" ")}
+            fill="none" stroke={lv === 1 ? `${color}40` : "rgba(0,0,0,0.04)"} strokeWidth={lv === 1 ? 2 : 1}
+            strokeDasharray={lv < 1 ? "4 4" : "none"} />
+        ))}
+
+        {/* Axis Lines */}
+        {axes.map((_, i) => { const p = pt(i, R); return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(0,0,0,0.04)" strokeWidth="1.5" />; })}
+
+        {/* Data Shape */}
+        <path d={valuePath} fill={`url(#dna-grad-${color})`} stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
+
+        {/* Data Points */}
+        {axes.map((a, i) => {
+          const p = pt(i, (dna[a.k] || 0) / 100 * R);
+          return <circle key={i} cx={p.x} cy={p.y} r="4" fill={T.surface} stroke={color} strokeWidth="2" />;
+        })}
+
+        {/* Labels with Scores */}
+        {axes.map((a, i) => {
+          const p = pt(i, R + 18);
+          const score = dna[a.k] || 0;
+          return (
+            <g key={i}>
+              <text x={p.x} y={p.y} textAnchor="middle" fill={T.muted} fontSize="10" fontWeight="700" letterSpacing="0.05em">{a.l}</text>
+              <text x={p.x} y={p.y + 12} textAnchor="middle" fill={color} fontSize="9" fontWeight="800">{score}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    HEATMAP
 ───────────────────────────────────────────────────────────────── */
 function Heatmap({ dev }) {
@@ -307,8 +424,8 @@ function Heatmap({ dev }) {
     <div>
       <div style={{ display: "flex", gap: 2 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 2, marginRight: 4 }}>
-          {["M", "T", "W", "T", "F", "S", "S"].map(d => (
-            <div key={d} style={{ height: 12, fontSize: 8, color: T.dim, display: "flex", alignItems: "center" }}>{d}</div>
+          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+            <div key={i} style={{ height: 12, fontSize: 8, color: T.dim, display: "flex", alignItems: "center" }}>{d}</div>
           ))}
         </div>
         {weeks.map((wk, wi) => (
@@ -718,6 +835,7 @@ function ProfilePage({ dev, onBack, data }) {
   if (!dev) return null;
   const myTickets = data.tickets.filter(t => t.assignee === dev.name);
   const flowColor = dev.flow.score >= 70 ? T.green : dev.flow.score >= 50 ? T.amber : T.orange;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <button onClick={onBack} style={{
@@ -765,6 +883,39 @@ function ProfilePage({ dev, onBack, data }) {
             <Gauge value={dev.psych.score} size={100} stroke={9} color={T.teal} label="PsychSafe" />
             <Radar dims={dev.dims} size={180} color={T.indigo} />
           </Card>
+
+          {/* DNA Section */}
+          {dev.dna && (
+            <Card glow={T.teal} style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 22 }}>🧬</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: T.teal, textTransform: "uppercase", letterSpacing: "0.05em" }}>Engineering DNA</span>
+                </div>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>
+                  Archetype: <strong style={{ color: T.text, fontSize: 14 }}>{dev.archetype}</strong>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {[
+                    { l: "Team Fit", v: dev.dna_applications.team_building, icon: "👥" },
+                    { l: "Coaching Focus", v: dev.dna_applications.mentoring, icon: "🎯" },
+                    { l: "Optimal Placement", v: dev.dna_applications.placement, icon: "🧩" }
+                  ].map(app => (
+                    <div key={app.l} style={{ padding: "12px", background: T.elevated, borderRadius: 10, border: `1px solid ${T.teal}22` }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>{app.icon}</span> {app.l}
+                      </div>
+                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{app.v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, padding: 20 }}>
+                <DNARadar dna={dev.dna} size={240} color={T.teal} />
+              </div>
+            </Card>
+          )}
 
           {/* AI Reasoning Section */}
           <AIReasoning devName={dev.name} />
@@ -1283,7 +1434,7 @@ function CodeHealthPage({ data }) {
         <Card glow={T.amber}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.amber, marginBottom: 6 }}>🚌 Bus Factor Analysis</div>
           <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.7 }}>
-            Number of developers who own >20% of the file's history.
+            Number of developers who own less than 20% of the file's history.
             Low bus factor (1 or 2) = High risk. If these owners leave or burnout, knowledge is lost.
             Integrated with "Burnout Risk" to identify critical single-points-of-failure.
           </div>

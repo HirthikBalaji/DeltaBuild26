@@ -382,6 +382,93 @@ async def execute_rebalance(reassignments: List[Dict[str, str]]):
                 })
     return {"results": results}
 
+@app.get("/api/dna/{dev_name}")
+async def get_dna(dev_name: str):
+    metrics = calculate_metrics()
+    if not metrics:
+        return {"error": "Could not calculate metrics"}
+    
+    dev = next((d for d in metrics["devs"] if d["name"] == dev_name), None)
+    if not dev:
+        return {"error": "Developer not found"}
+
+    # Check cache
+    cache_key = f"{dev_name}_{dev['commits']}_{dev['additions']}_{dev['burnout']}"
+    if cache_key in dna_cache:
+        return dna_cache[cache_key]
+
+    try:
+        # Traditional Math-Based DNA Calculation
+        c = max(dev['commits'], 1)
+        a = dev['additions']
+        f_score = dev['flow']['score']
+        p_score = dev['psych']['score']
+        burnout = dev['burnout']
+        j_total = max(dev['jira']['total'], 1)
+        j_comments = dev['jira']['comments']
+        
+        avg_lines = a / c
+        
+        # 1. Logic Complexity: High if they write a lot of lines per commit and have high flow
+        logic_complexity = min(100, max(10, round((avg_lines / 30 * 50) + (f_score / 100 * 50))))
+        
+        # 2. Refactor Tendency: High if they have many commits but few total additions (tweaking existing code)
+        refactor_tendency = min(100, max(10, round(100 - (avg_lines / 40 * 100))))
+        if c < 5: refactor_tendency = 30 # Not enough data
+        
+        # 3. Bug Injection Rate: Correlated with high burnout and massive churn
+        bug_injection_rate = min(100, max(5, round((burnout / 100 * 60) + (min(a, 2000) / 2000 * 40))))
+        
+        # 4. Review Strictness: Correlated with Jira comments vs tasks
+        review_strictness = min(100, max(15, round((j_comments / j_total) * 30 + 40)))
+        
+        # 5. Risk Tolerance: High if they push massive commits (high avg lines) or have low psych safety (operating alone)
+        risk_tolerance = min(100, max(20, round((avg_lines / 50 * 50) + ((100 - p_score) / 100 * 50))))
+        
+        # 6. Innovation Index: High psychological safety, many dev files, healthy flow
+        files_touched = getattr(dev, 'files', 10) # fallback to 10 if not present
+        if isinstance(files_touched, set): files_touched = len(files_touched)
+        innovation_index = min(100, max(10, round((p_score / 100 * 40) + (min(files_touched, 20) / 20 * 40) + (f_score / 100 * 20))))
+
+        # Behavioral Summary mapping
+        traits = {
+            "Logic Complexity": logic_complexity,
+            "Refactor Tendency": refactor_tendency,
+            "Review Strictness": review_strictness,
+            "Risk Tolerance": risk_tolerance,
+            "Innovation Index": innovation_index
+        }
+        dominant_trait = max(traits, key=traits.get)
+        
+        summary = ""
+        if dominant_trait == "Logic Complexity":
+            summary = "Deep focus engineer resolving highly complex logic with structured deep-work sessions."
+        elif dominant_trait == "Refactor Tendency":
+            summary = "Meticulous optimizer who frequently refactors and polishes existing codebases iteratively."
+        elif dominant_trait == "Review Strictness":
+            summary = "Quality gatekeeper with strong communication and high standards in peer reviews."
+        elif dominant_trait == "Risk Tolerance":
+            summary = "Fast-moving experimentalist willing to take bold bets and push large features rapidly."
+        else: # Innovation Index
+            summary = "Highly collaborative pioneer exploring broad areas of the codebase with creative solutions."
+
+        dna_res = {
+            "logic_complexity": int(logic_complexity),
+            "refactor_tendency": int(refactor_tendency),
+            "bug_injection_rate": int(bug_injection_rate),
+            "review_strictness": int(review_strictness),
+            "risk_tolerance": int(risk_tolerance),
+            "innovation_index": int(innovation_index),
+            "behavioral_summary": summary
+        }
+        
+        dna_cache[cache_key] = dna_res
+        return dna_res
+        
+    except Exception as e:
+        print(f"DNA Calculation error: {e}")
+        return {"error": f"Math-based DNA analysis failed: {str(e)}"}
+
 @app.get("/api/events")
 async def events(request: Request):
     async def event_generator():
