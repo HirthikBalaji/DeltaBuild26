@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from watchfiles import awatch
 import ollama
+import httpx
 
 app = FastAPI()
 
@@ -41,6 +42,9 @@ def normalize_name(name: str) -> str:
     if 'alice' in lower: return "Alice Dev"
     return name
 
+def get_email(name: str) -> str:
+    return f"{name.lower().replace(' ', '.') or 'unknown'}@example.com"
+
 def calculate_metrics():
     try:
         dev_data = {}
@@ -59,6 +63,7 @@ def calculate_metrics():
                     if assignee not in dev_data:
                         dev_data[assignee] = {
                             "name": assignee, "avatar": assignee[:2].upper(), "role": "Engineer",
+                            "email": get_email(assignee),
                             "commits": 0, "additions": 0, "files": set(), "sprints": [0,0,0,0],
                             "jira": {"total": 0, "done": 0, "inprog": 0, "todo": 0, "comments": 0},
                             "flow": {"score": 0}, "psych": {"score": 0, "collab": 0, "directive": 0, "total": 0},
@@ -73,7 +78,8 @@ def calculate_metrics():
 
                     tickets.append({
                         "key": row['key'], "title": row['title'], "status": row['status'],
-                        "assignee": assignee, "risk": math.floor(os.urandom(1)[0] / 256 * 90)
+                        "assignee": assignee, "assignee_email": d["email"],
+                        "risk": math.floor(os.urandom(1)[0] / 256 * 90)
                     })
 
         # 2. Process Github Data
@@ -88,6 +94,7 @@ def calculate_metrics():
                     if author not in dev_data:
                         dev_data[author] = {
                             "name": author, "avatar": author[:2].upper(), "role": "Engineer",
+                            "email": get_email(author),
                             "commits": 0, "additions": 0, "files": set(), "sprints": [0,0,0,0],
                             "jira": {"total": 0, "done": 0, "inprog": 0, "todo": 0, "comments": 0},
                             "flow": {"score": 0}, "psych": {"score": 0, "collab": 0, "directive": 0, "total": 0},
@@ -302,6 +309,78 @@ async def get_reasoning(dev_name: str):
     except Exception as e:
         print(f"Ollama error: {e}")
         return {"error": "AI reasoning currently unavailable. Ensure Ollama is running with llama3.2."}
+
+@app.get("/api/rebalance/analyze")
+async def analyze_rebalance():
+    metrics = calculate_metrics()
+    if not metrics:
+        return {"error": "Could not calculate metrics"}
+    
+    overloaded = [d for d in metrics["devs"] if d["burnout"] >= 65]
+    available = [d for d in metrics["devs"] if d["burnout"] < 35]
+    
+    if not overloaded:
+        return {"suggestions": [], "message": "No developers are currently overloaded (Burnout > 65)."}
+    if not available:
+        return {"suggestions": [], "message": "No developers are currently available to take on more work (Burnout < 35)."}
+
+    # Collect open tickets for overloaded devs
+    tickets_to_reassign = [t for t in metrics["tickets"] if t["status"] != "Done" and t["assignee"] in [d["name"] for d in overloaded]]
+    
+    prompt = f"""
+    Suggest a rebalancing plan for these Jira tickets. 
+    Tickets to reassign: {json.dumps(tickets_to_reassign[:10])}
+    
+    Available developers to receive tickets:
+    {json.dumps([{'name': d['name'], 'email': d['email'], 'burnout': d['burnout'], 'open_tasks': d['open_tasks']} for d in available])}
+    
+    Return a JSON list only. Format:
+    [
+      {{"issue_key": "DEV-1", "assignee_email": "EMAIL_OF_FREE_DEVELOPER", "reason": "Short reason why this dev is a good fit", "current_assignee": "Name"}}
+    ]
+    Ensure the JSON is valid and only includes the list. Don't add conversational filler.
+    """
+
+    try:
+        response = ollama.chat(model='llama3.2', messages=[
+            {'role': 'system', 'content': 'You are an AI Resource Planning Agent. You must output valid JSON lists.'},
+            {'role': 'user', 'content': prompt}
+        ])
+        content = response['message']['content']
+        # Extract JSON list if the LLM added filler
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        suggestions = json.loads(content[start:end])
+        return {"suggestions": suggestions}
+    except Exception as e:
+        print(f"Ollama rebalance error: {e}")
+        return {"error": f"AI analysis failed: {str(e)}"}
+
+@app.post("/api/rebalance/execute")
+async def execute_rebalance(reassignments: List[Dict[str, str]]):
+    results = []
+    async with httpx.AsyncClient() as client:
+        for item in reassignments:
+            payload = {
+                "issue_key": item["issue_key"],
+                "assignee_email": item["assignee_email"]
+            }
+            try:
+                # Assuming port 8000 is running an endpoint like /reassign or similar
+                # Since the user specified localhost:8000, we'll try that.
+                response = await client.post("http://localhost:8000/reassign", json=payload, timeout=5.0)
+                results.append({
+                    "issue_key": item["issue_key"],
+                    "status": "success" if response.status_code < 400 else "failed",
+                    "code": response.status_code
+                })
+            except Exception as e:
+                results.append({
+                    "issue_key": item["issue_key"],
+                    "status": "error",
+                    "error": str(e)
+                })
+    return {"results": results}
 
 @app.get("/api/events")
 async def events(request: Request):
