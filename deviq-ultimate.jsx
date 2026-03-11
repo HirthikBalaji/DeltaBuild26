@@ -3269,6 +3269,579 @@ function DarkMatterPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   WCIS — SELF-SOVEREIGN CONTRIBUTION PORTFOLIO
+═════════════════════════════════════════════════════════════════ */
+
+function hashContrib(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8,"0").toUpperCase();
+}
+function contribId(devName, type, idx) {
+  return `WCIS-${hashContrib(devName+type+idx)}-${(idx+1).toString().padStart(3,"0")}`;
+}
+function sha256sim(str) {
+  let a=0x6a09e667,b=0xbb67ae85,c=0x3c6ef372,d=0xa54ff53a;
+  for(let i=0;i<str.length;i++){const ch=str.charCodeAt(i);a=((a^ch)*0x45d9f3b)>>>0;b=((b^a)*0x119de1f3)>>>0;c=((c^b)*0x1b873593)>>>0;d=((d^c)*0xe654f72b)>>>0;}
+  return [a,b,c,d].map(x=>x.toString(16).padStart(8,"0")).join("")+[a^b,b^c,c^d,d^a].map(x=>(x>>>0).toString(16).padStart(8,"0")).join("");
+}
+function secureToken(seed) {
+  return btoa(sha256sim(seed).slice(0,24)).replace(/[^a-zA-Z0-9]/g,"").slice(0,32);
+}
+
+const VERIF_META = {
+  system_verified:  {label:"System Verified",  icon:"⚙", color:T.teal},
+  manager_verified: {label:"Manager Verified", icon:"✦", color:T.indigo},
+  peer_verified:    {label:"Peer Verified",    icon:"◈", color:T.green},
+  org_verified:     {label:"Org Verified",     icon:"⬢", color:T.amber},
+};
+const TYPE_META = {
+  code:          {label:"Code",               icon:"⬡", color:T.indigo},
+  leadership:    {label:"Leadership",         icon:"★", color:T.amber},
+  collaboration: {label:"Collaboration",      icon:"◈", color:T.teal},
+  process:       {label:"Process Improvement",icon:"◉", color:T.green},
+  research:      {label:"Research",           icon:"✦", color:T.purple},
+};
+
+function buildPortfolio(dev, fileData, tickets) {
+  const records = [];
+  let idx = 0;
+  fileData.filter(f=>f.devs?.[dev.name]).forEach(f=>{
+    const isTop=f.top_owner===dev.name, commits=f.devs[dev.name];
+    const impact=Math.round((commits/Math.max(f.total,1))*100);
+    records.push({
+      id:contribId(dev.name,"code",idx++), type:"code",
+      project:f.file.replace(/\.\w+$/,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()),
+      role:isTop?"Primary Author":"Contributor",
+      summary:`${isTop?"Architected and owns":"Contributed to"} ${f.file} — ${commits} commits, entropy ${f.entropy.toFixed(2)}.`,
+      impact:{productivity:impact, adoption:Math.min(impact+12,100), revenue:Math.round(impact*0.8)},
+      artifacts:[`git:${f.file}`,`commits:${commits}`,`entropy:${f.entropy.toFixed(2)}`],
+      timestamp:new Date(Date.now()-(idx*8.64e7*14)).toISOString().slice(0,10),
+      verification:f.entropy<1.2?"system_verified":isTop?"manager_verified":"peer_verified",
+      hash:sha256sim(dev.name+f.file+commits),
+      skills:[f.file.endsWith(".py")?"Python":f.file.endsWith(".jsx")?"React":"TypeScript", isTop?"Architecture":"Collaboration"],
+      visible:true,
+    });
+  });
+  if(dev.burnout>=55||dev.contribution>=55){
+    records.push({
+      id:contribId(dev.name,"leadership",idx++), type:"leadership",
+      project:`${dev.name.split(" ")[0]}'s Engineering Leadership`, role:"Technical Lead",
+      summary:`Sustained high-velocity delivery — ${dev.commits} commits, ${dev.jira?.total} issues across sprints.`,
+      impact:{productivity:dev.contribution, adoption:80, revenue:Math.round(dev.contribution*1.2)},
+      artifacts:[`jira:${dev.jira?.total}_issues`,`sprints:4`,`burnout_load:${dev.burnout}%`],
+      timestamp:new Date(Date.now()-8.64e7*30).toISOString().slice(0,10),
+      verification:"manager_verified", hash:sha256sim(dev.name+"leadership"+dev.contribution),
+      skills:["Leadership","Sprint Management","Delivery"], visible:true,
+    });
+  }
+  if((dev.jira?.comments||0)>10){
+    const collab=dev.psych?.collab||0;
+    records.push({
+      id:contribId(dev.name,"collaboration",idx++), type:"collaboration",
+      project:"Cross-Team Knowledge Transfer", role:"Collaborator",
+      summary:`${dev.jira.comments} issue comments; ${collab} collaborative. Active reviewer across ${fileData.filter(f=>f.devs?.[dev.name]&&Object.keys(f.devs).length>1).length} shared files.`,
+      impact:{productivity:Math.min(Math.round(collab*3),100), adoption:70, revenue:40},
+      artifacts:[`jira_comments:${dev.jira.comments}`,`collab_signals:${collab}`],
+      timestamp:new Date(Date.now()-8.64e7*45).toISOString().slice(0,10),
+      verification:"peer_verified", hash:sha256sim(dev.name+"collab"+dev.jira.comments),
+      skills:["Collaboration","Code Review","Mentoring"], visible:true,
+    });
+  }
+  if((dev.flow?.score||0)>=60){
+    records.push({
+      id:contribId(dev.name,"process",idx++), type:"process",
+      project:"Engineering Workflow Optimization", role:"Process Champion",
+      summary:`Flow score ${dev.flow.score} — deep focus commits averaging ${dev.flow.avg_lines?.toFixed(0)} lines. Commit quality ${dev.flow.msg_quality}%.`,
+      impact:{productivity:dev.flow.score, adoption:65, revenue:35},
+      artifacts:[`flow_score:${dev.flow.score}`,`avg_lines_commit:${dev.flow.avg_lines?.toFixed(1)}`,`msg_quality:${dev.flow.msg_quality}%`],
+      timestamp:new Date(Date.now()-8.64e7*60).toISOString().slice(0,10),
+      verification:"system_verified", hash:sha256sim(dev.name+"process"+dev.flow.score),
+      skills:["Process Improvement","Engineering Excellence","Focus"], visible:true,
+    });
+  }
+  if(dev.dna?.innovation>=55){
+    records.push({
+      id:contribId(dev.name,"research",idx++), type:"research",
+      project:"Technical Innovation Initiative", role:"Innovator",
+      summary:`Innovation DNA ${dev.dna.innovation}. Archetype: ${dev.archetype}. Broad exploration across ${fileData.filter(f=>f.devs?.[dev.name]).length} files.`,
+      impact:{productivity:dev.dna.innovation, adoption:Math.round(dev.dna.innovation*0.85), revenue:Math.round(dev.dna.innovation*0.7)},
+      artifacts:[`innovation_dna:${dev.dna.innovation}`,`archetype:${dev.archetype}`],
+      timestamp:new Date(Date.now()-8.64e7*90).toISOString().slice(0,10),
+      verification:"org_verified", hash:sha256sim(dev.name+"research"+dev.dna.innovation),
+      skills:["Innovation","Research","Prototyping"], visible:true,
+    });
+  }
+  const impactScore = Math.round(records.reduce((s,r)=>s+r.impact.productivity,0)/Math.max(records.length,1));
+  const skillGraph  = [...new Set(records.flatMap(r=>r.skills))];
+  const trustScore  = Math.round((records.length/Math.max(records.length,1))*100);
+  return {records, impactScore, innovIndex:dev.dna?.innovation||50, leaderScore:dev.contribution, collabScore:dev.psych?.score||30, skillGraph, trustScore};
+}
+
+function VerifBadge({type,size=11}){
+  const m=VERIF_META[type]||VERIF_META.system_verified;
+  return <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:size,padding:"3px 10px",borderRadius:20,fontWeight:700,background:`${m.color}15`,color:m.color,border:`1.5px solid ${m.color}33`}}><span>{m.icon}</span>{m.label}</span>;
+}
+function HashChip({hash}){
+  return <span style={{fontSize:9,fontFamily:"monospace",color:T.dim,background:"rgba(0,0,0,0.05)",padding:"3px 8px",borderRadius:6,letterSpacing:"0.05em",userSelect:"all"}}>{hash.slice(0,16)}…</span>;
+}
+function ImpactTriangle({impact,size=90,color=T.indigo}){
+  const axes=["productivity","adoption","revenue"],labels=["Productivity","Adoption","Revenue"];
+  const n=3,cx=size/2,cy=size/2,R=size/2-18;
+  const angle=i=>(i/n)*2*Math.PI-Math.PI/2;
+  const pt=(i,r)=>({x:cx+r*Math.cos(angle(i)),y:cy+r*Math.sin(angle(i))});
+  const vp=axes.map((a,i)=>{const p=pt(i,(impact[a]||0)/100*R);return`${i===0?"M":"L"}${p.x},${p.y}`;}).join(" ")+"Z";
+  return(
+    <svg width={size} height={size}>
+      {[0.33,0.66,1].map(lv=><polygon key={lv} points={axes.map((_,i)=>{const p=pt(i,R*lv);return`${p.x},${p.y}`;}).join(" ")} fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>)}
+      {axes.map((_,i)=>{const p=pt(i,R);return<line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(0,0,0,0.05)" strokeWidth="1"/>;} )}
+      <path d={vp} fill={`${color}20`} stroke={color} strokeWidth="2" strokeLinejoin="round"/>
+      {axes.map((a,i)=>{const p=pt(i,(impact[a]||0)/100*R);return<circle key={i} cx={p.x} cy={p.y} r="3" fill={color} stroke="white" strokeWidth="1.5"/>;} )}
+      {axes.map((a,i)=>{const p=pt(i,R+13);return(
+        <text key={i} x={p.x} y={p.y+3} textAnchor="middle" fill={T.dim} fontSize="7" fontFamily="monospace">
+          {labels[i]}<tspan x={p.x} dy="8" fill={color} fontWeight="800">{impact[a]}%</tspan>
+        </text>
+      );})}
+    </svg>
+  );
+}
+
+function ContribCard({record,onToggle}){
+  const [expanded,setExpanded]=useState(false);
+  const tm=TYPE_META[record.type]||TYPE_META.code;
+  return(
+    <div style={{background:T.surface,borderRadius:14,border:`1.5px solid ${tm.color}22`,boxShadow:"0 2px 12px rgba(0,0,0,0.03)",overflow:"hidden",opacity:record.visible?1:0.45,transition:"opacity 0.2s"}}>
+      <div style={{height:3,background:`linear-gradient(90deg,${tm.color},${tm.color}88)`}}/>
+      <div style={{padding:"16px 20px"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:14,marginBottom:12}}>
+          <div style={{width:40,height:40,borderRadius:10,flexShrink:0,background:`${tm.color}14`,border:`1.5px solid ${tm.color}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,color:tm.color}}>{tm.icon}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+              <span style={{fontSize:13,fontWeight:800,color:T.text}}>{record.project}</span>
+              <Tag color={tm.color} size={9}>{tm.label}</Tag>
+              <VerifBadge type={record.verification} size={9}/>
+            </div>
+            <div style={{fontSize:10,color:T.muted,fontWeight:600}}>{record.role} · {record.timestamp}</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+            <button onClick={()=>onToggle(record.id)} style={{fontSize:9,padding:"4px 10px",borderRadius:6,cursor:"pointer",fontFamily:"inherit",fontWeight:700,border:`1px solid ${record.visible?T.green:T.border}`,background:record.visible?`${T.green}12`:"transparent",color:record.visible?T.green:T.dim}}>{record.visible?"Shared ✓":"Hidden"}</button>
+            <button onClick={()=>setExpanded(e=>!e)} style={{fontSize:9,padding:"4px 10px",borderRadius:6,cursor:"pointer",fontFamily:"inherit",border:`1px solid ${T.border}`,background:"transparent",color:T.muted,fontWeight:600}}>{expanded?"▲ Less":"▼ More"}</button>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:T.muted,lineHeight:1.7,marginBottom:12}}>{record.summary}</div>
+        <div style={{display:"flex",gap:14,marginBottom:10}}>
+          {[["Productivity",record.impact.productivity,T.indigo],["Adoption",record.impact.adoption,T.teal],["Revenue Δ",record.impact.revenue,T.green]].map(([l,v,c])=>(
+            <div key={l} style={{flex:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,fontSize:9,color:T.dim}}><span>{l}</span><span style={{color:c,fontWeight:800}}>{v}%</span></div>
+              <Bar value={v} color={c} h={4}/>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>{record.skills.map(s=><Tag key={s} color={tm.color} size={9}>{s}</Tag>)}</div>
+        {expanded&&(
+          <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+            <div style={{display:"flex",gap:20,alignItems:"flex-start",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:180}}>
+                <div style={{fontSize:9,color:T.dim,fontWeight:800,letterSpacing:"0.1em",marginBottom:8}}>EVIDENCE ARTIFACTS</div>
+                {record.artifacts.map((a,i)=><div key={i} style={{fontSize:10,color:T.muted,padding:"5px 10px",background:T.elevated,borderRadius:6,marginBottom:4,fontFamily:"monospace"}}>📎 {a}</div>)}
+              </div>
+              <div>
+                <div style={{fontSize:9,color:T.dim,fontWeight:800,letterSpacing:"0.1em",marginBottom:8}}>IMPACT PROFILE</div>
+                <ImpactTriangle impact={record.impact} size={100} color={tm.color}/>
+              </div>
+              <div style={{flex:1,minWidth:180}}>
+                <div style={{fontSize:9,color:T.dim,fontWeight:800,letterSpacing:"0.1em",marginBottom:8}}>CRYPTOGRAPHIC PROOF</div>
+                <div style={{fontSize:9,color:T.muted,marginBottom:4}}>Contribution ID</div>
+                <div style={{fontFamily:"monospace",fontSize:10,color:T.text,marginBottom:10,background:T.elevated,padding:"6px 10px",borderRadius:6}}>{record.id}</div>
+                <div style={{fontSize:9,color:T.muted,marginBottom:4}}>SHA-256 Hash</div>
+                <div style={{fontFamily:"monospace",fontSize:8,color:T.dim,background:T.elevated,padding:"6px 10px",borderRadius:6,wordBreak:"break-all",lineHeight:1.6}}>{record.hash}</div>
+                <div style={{marginTop:8,display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:9,color:T.green}}>✓</span><span style={{fontSize:9,color:T.green,fontWeight:700}}>Tamper-proof record</span></div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SharingPanel({dev,portfolio,onClose}){
+  const [shareMode,setShareMode]=useState("selective");
+  const [timeRange,setTimeRange]=useState("all");
+  const [token,setToken]=useState(null);
+  const [consent,setConsent]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [auditLog,setAuditLog]=useState([
+    {who:"recruiter@acme.com",when:"2 days ago",action:"Viewed portfolio"},
+    {who:"hr@techcorp.io",when:"5 days ago",action:"Accessed 3 contributions"},
+  ]);
+  const visibleCount=portfolio.records.filter(r=>r.visible).length;
+  const generateToken=()=>{
+    if(!consent)return;
+    const t=secureToken(dev.name+Date.now());
+    setToken(t);
+    setAuditLog(l=>[{who:"Link generated",when:"Just now",action:`Token: ${t.slice(0,8)}…`},...l]);
+  };
+  const copyLink=()=>{navigator.clipboard?.writeText(`https://wcis.deviq.io/portfolio/shared/${token}`).catch(()=>{});setCopied(true);setTimeout(()=>setCopied(false),2000);};
+  const revokeToken=()=>{setAuditLog(l=>[{who:"Access revoked",when:"Just now",action:`Token ${token?.slice(0,8)}… invalidated`},...l]);setToken(null);};
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(4px)"}}>
+      <div style={{background:T.surface,borderRadius:20,width:600,maxHeight:"85vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,0.18)",border:`1px solid ${T.border}`}}>
+        <div style={{padding:"22px 26px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:20}}>🔐</span><span style={{fontSize:15,fontWeight:800,color:T.text}}>Sharing Control Panel</span></div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:T.dim}}>✕</button>
+        </div>
+        <div style={{padding:"22px 26px",display:"flex",flexDirection:"column",gap:18}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:"0.1em",marginBottom:10}}>SHARE MODE</div>
+            <div style={{display:"flex",gap:8}}>
+              {[["selective","Selected only"],["full","Full portfolio"],["timerange","Time range"]].map(([m,l])=>(
+                <button key={m} onClick={()=>setShareMode(m)} style={{flex:1,padding:"10px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,border:`1.5px solid ${shareMode===m?T.indigo:T.border}`,background:shareMode===m?`${T.indigo}12`:"transparent",color:shareMode===m?T.indigo:T.muted}}>{l}</button>
+              ))}
+            </div>
+            {shareMode==="selective"&&<div style={{marginTop:10,fontSize:11,color:T.muted,padding:"10px 14px",background:T.elevated,borderRadius:8}}>Sharing <strong style={{color:T.indigo}}>{visibleCount}</strong> of {portfolio.records.length} contributions — toggle visibility on cards.</div>}
+            {shareMode==="timerange"&&(<div style={{marginTop:10,display:"flex",gap:8}}>{["30d","90d","180d","all"].map(r=><button key={r} onClick={()=>setTimeRange(r)} style={{flex:1,padding:"8px",borderRadius:7,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,border:`1px solid ${timeRange===r?T.teal:T.border}`,background:timeRange===r?`${T.teal}12`:"transparent",color:timeRange===r?T.teal:T.muted}}>Last {r==="all"?"All":r}</button>)}</div>)}
+          </div>
+          <div style={{padding:"14px 16px",background:`${T.amber}0a`,borderRadius:10,border:`1px solid ${T.amber}22`}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+              <div onClick={()=>setConsent(c=>!c)} style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:1,border:`2px solid ${consent?T.green:T.border}`,background:consent?T.green:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {consent&&<span style={{color:"white",fontSize:12,fontWeight:900}}>✓</span>}
+              </div>
+              <div style={{fontSize:11,color:T.muted,lineHeight:1.7}}><strong style={{color:T.amber}}>Explicit Consent — </strong>I understand that generating a share link allows the recipient to view my selected contributions. I can revoke access at any time.</div>
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:"0.1em",marginBottom:10}}>ACCESS TOKEN</div>
+            {!token?(
+              <button onClick={generateToken} disabled={!consent} style={{width:"100%",padding:"12px",borderRadius:10,fontFamily:"inherit",fontWeight:800,fontSize:13,cursor:consent?"pointer":"not-allowed",background:consent?T.indigo:"rgba(0,0,0,0.05)",color:consent?"white":T.dim,border:"none",opacity:consent?1:0.6}}>🔗 Generate Secure Recruiter Link</button>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{padding:"10px 14px",background:T.elevated,borderRadius:8,fontFamily:"monospace",fontSize:11,color:T.text,wordBreak:"break-all"}}>https://wcis.deviq.io/portfolio/shared/<strong style={{color:T.indigo}}>{token}</strong></div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={copyLink} style={{flex:1,padding:"9px",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:11,border:`1px solid ${T.green}`,background:`${T.green}12`,color:T.green}}>{copied?"✓ Copied!":"📋 Copy Link"}</button>
+                  <button onClick={revokeToken} style={{flex:1,padding:"9px",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:11,border:`1px solid ${T.red}`,background:`${T.red}0a`,color:T.red}}>🚫 Revoke Access</button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:"0.1em",marginBottom:10}}>AUDIT LOG</div>
+            {auditLog.map((e,i)=>(
+              <div key={i} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 12px",background:T.elevated,borderRadius:8,marginBottom:6}}>
+                <span style={{fontSize:10}}>👁</span>
+                <span style={{fontSize:10,color:T.text,flex:1,fontWeight:600}}>{e.who}</span>
+                <span style={{fontSize:9,color:T.muted}}>{e.action}</span>
+                <span style={{fontSize:9,color:T.dim}}>{e.when}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecruiterView({dev,portfolio,onClose}){
+  const skills=[...new Set(portfolio.records.filter(r=>r.visible).flatMap(r=>r.skills))];
+  const token=secureToken(dev.name+"recruiter");
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(6px)"}}>
+      <div style={{background:T.surface,borderRadius:20,width:680,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 32px 100px rgba(0,0,0,0.22)",border:`1px solid ${T.border}`}}>
+        <div style={{padding:"20px 28px",background:`linear-gradient(135deg,${T.indigo},${T.purple})`,borderRadius:"20px 20px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.7)",letterSpacing:"0.15em",marginBottom:4}}>WCIS · RECRUITER VIEW · READ-ONLY</div>
+            <div style={{fontSize:18,fontWeight:900,color:"white"}}>{dev.name}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginTop:2}}>{dev.role}</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+            <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"white",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:11,fontWeight:700}}>✕ Close</button>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontFamily:"monospace"}}>Token: {token.slice(0,12)}…</div>
+          </div>
+        </div>
+        <div style={{padding:"24px 28px",display:"flex",flexDirection:"column",gap:18}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+            {[["Impact Score",portfolio.impactScore,T.indigo,"◉"],["Innovation",portfolio.innovIndex,T.purple,"✦"],["Leadership",portfolio.leaderScore,T.amber,"★"],["Trust Score",portfolio.trustScore,T.green,"⬢"]].map(([l,v,c,ic])=>(
+              <div key={l} style={{textAlign:"center",padding:"14px",background:T.elevated,borderRadius:12,border:`1px solid ${c}22`}}>
+                <div style={{fontSize:11,color:c,marginBottom:4}}>{ic}</div>
+                <div style={{fontSize:26,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+                <div style={{fontSize:8,color:T.dim,marginTop:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>{l}</div>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:"0.1em",marginBottom:10}}>VERIFIED SKILL GRAPH</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{skills.map(s=><div key={s} style={{padding:"7px 16px",borderRadius:20,background:T.elevated,border:`1.5px solid ${T.indigo}33`,fontSize:11,fontWeight:700,color:T.indigo}}>{s}</div>)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:T.dim,letterSpacing:"0.1em",marginBottom:14}}>CONTRIBUTION TIMELINE</div>
+            <div style={{position:"relative",paddingLeft:24}}>
+              <div style={{position:"absolute",left:7,top:0,bottom:0,width:2,background:`${T.indigo}22`,borderRadius:2}}/>
+              {portfolio.records.filter(r=>r.visible).map((r,i)=>{
+                const tm=TYPE_META[r.type]||TYPE_META.code;
+                return(
+                  <div key={r.id} style={{position:"relative",marginBottom:14}}>
+                    <div style={{position:"absolute",left:-21,top:4,width:12,height:12,borderRadius:"50%",background:tm.color,border:"2px solid white",boxShadow:`0 0 0 2px ${tm.color}44`}}/>
+                    <div style={{padding:"12px 16px",background:T.elevated,borderRadius:10,border:`1px solid ${tm.color}22`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,fontWeight:700,color:T.text}}>{r.project}</span><span style={{fontSize:9,color:T.dim}}>{r.timestamp}</span></div>
+                      <div style={{fontSize:10,color:T.muted,marginBottom:6}}>{r.role} · <span style={{color:tm.color}}>{tm.label}</span></div>
+                      <div style={{fontSize:10,color:T.muted,lineHeight:1.6,marginBottom:8}}>{r.summary}</div>
+                      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><VerifBadge type={r.verification} size={9}/><HashChip hash={r.hash}/></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{textAlign:"center",padding:"12px",fontSize:9,color:T.dim}}>🔒 Cryptographically verified by WCIS · DevIQ Platform · Access logged</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WCISPage({data}){
+  const [selectedDev,setSelectedDev]=useState(data.devs[0]);
+  const [visibilityMap,setVisibilityMap]=useState({});
+  const [showSharing,setShowSharing]=useState(false);
+  const [showRecruiter,setShowRecruiter]=useState(false);
+  const [activeTab,setActiveTab]=useState("portfolio");
+
+  const rawPortfolio=useMemo(()=>buildPortfolio(selectedDev,data.fileData,data.tickets),[selectedDev,data]);
+  const portfolio=useMemo(()=>({...rawPortfolio,records:rawPortfolio.records.map(r=>({...r,visible:visibilityMap[r.id]!==undefined?visibilityMap[r.id]:r.visible}))}),[rawPortfolio,visibilityMap]);
+  const toggleVisibility=id=>setVisibilityMap(m=>({...m,[id]:!(m[id]!==undefined?m[id]:true)}));
+  const switchDev=dev=>{setSelectedDev(dev);setVisibilityMap({});};
+
+  const tabs=[{id:"portfolio",label:"📁 Portfolio"},{id:"timeline",label:"📅 Timeline"},{id:"analytics",label:"📊 Intelligence"},{id:"api",label:"⚙ API & Security"}];
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:20}}>
+      {showSharing&&<SharingPanel dev={selectedDev} portfolio={portfolio} onClose={()=>setShowSharing(false)}/>}
+      {showRecruiter&&<RecruiterView dev={selectedDev} portfolio={portfolio} onClose={()=>setShowRecruiter(false)}/>}
+
+      <Card glow={T.indigo}>
+        <div style={{display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <span style={{fontSize:22}}>🏛</span>
+              <span style={{fontSize:15,fontWeight:800,color:T.indigo,textTransform:"uppercase",letterSpacing:"0.06em"}}>Self-Sovereign Contribution Portfolio</span>
+              <Tag color={T.green} size={9}>WCIS v1.0</Tag>
+            </div>
+            <div style={{fontSize:11,color:T.muted,lineHeight:1.9}}>
+              Your <strong style={{color:T.text}}>portable, verifiable record</strong> of engineering contributions. Persists beyond employment. You control visibility. Every record is <strong style={{color:T.green}}>cryptographically hashed</strong> and <strong style={{color:T.indigo}}>independently verifiable</strong>.
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
+            <div style={{fontSize:9,color:T.dim,fontWeight:800,letterSpacing:"0.1em"}}>SELECT EMPLOYEE</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {data.devs.map(dev=>(
+                <button key={dev.name} onClick={()=>switchDev(dev)} style={{padding:"7px 14px",borderRadius:8,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,border:`1.5px solid ${selectedDev.name===dev.name?T.indigo:T.border}`,background:selectedDev.name===dev.name?`${T.indigo}14`:"transparent",color:selectedDev.name===dev.name?T.indigo:T.muted}}>
+                  {dev.avatar} {dev.name.split(" ")[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:20}}>
+        <Card style={{display:"flex",flexDirection:"column",gap:14,alignItems:"center",textAlign:"center"}}>
+          <div style={{width:72,height:72,borderRadius:"50%",background:`${rc(selectedDev.risk)}14`,border:`3px solid ${rc(selectedDev.risk)}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:900}}>{selectedDev.avatar}</div>
+          <div>
+            <div style={{fontSize:17,fontWeight:800,color:T.text}}>{selectedDev.name}</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>{selectedDev.role}</div>
+            <div style={{marginTop:8,display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap"}}>
+              <Tag color={T.indigo} size={9}>{selectedDev.archetype||"Engineer"}</Tag>
+              <Tag color={T.green} size={9}>Portfolio Owner</Tag>
+            </div>
+          </div>
+          <div style={{width:"100%",padding:"12px 16px",background:`${T.green}0a`,borderRadius:10,border:`1px solid ${T.green}22`}}>
+            <div style={{fontSize:28,fontWeight:900,color:T.green}}>{portfolio.trustScore}%</div>
+            <div style={{fontSize:9,color:T.dim,marginTop:2,textTransform:"uppercase",letterSpacing:"0.08em"}}>Trust Score</div>
+            <Bar value={portfolio.trustScore} color={T.green} h={5}/>
+          </div>
+          <div style={{width:"100%"}}>
+            <div style={{fontSize:9,color:T.dim,fontWeight:800,letterSpacing:"0.1em",marginBottom:8}}>VERIFIED SKILLS</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center"}}>{portfolio.skillGraph.slice(0,10).map(s=><Tag key={s} color={T.teal} size={9}>{s}</Tag>)}</div>
+          </div>
+          <div style={{width:"100%",display:"flex",flexDirection:"column",gap:8}}>
+            <button onClick={()=>setShowSharing(true)} style={{width:"100%",padding:"10px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:12,background:T.indigo,color:"white",border:"none"}}>🔐 Sharing Controls</button>
+            <button onClick={()=>setShowRecruiter(true)} style={{width:"100%",padding:"10px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,background:"transparent",border:`1.5px solid ${T.indigo}`,color:T.indigo}}>👔 Preview Recruiter View</button>
+          </div>
+        </Card>
+
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+            {[["Contributions",portfolio.records.length,T.indigo,"📁"],["Impact Score",portfolio.impactScore,T.teal,"◉"],["Innovation Idx",portfolio.innovIndex,T.purple,"✦"],["Leadership",portfolio.leaderScore,T.amber,"★"]].map(([l,v,c,ic])=>(
+              <Card key={l} glow={c} style={{textAlign:"center",padding:"16px"}}>
+                <div style={{fontSize:14,marginBottom:6,color:c}}>{ic}</div>
+                <div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+                <div style={{fontSize:9,color:T.dim,marginTop:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{l}</div>
+              </Card>
+            ))}
+          </div>
+          <Card>
+            <div style={{fontSize:9,color:T.dim,fontWeight:800,letterSpacing:"0.1em",marginBottom:12}}>VERIFICATION BREAKDOWN</div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              {Object.entries(VERIF_META).map(([k,m])=>{
+                const cnt=portfolio.records.filter(r=>r.verification===k).length;
+                return(
+                  <div key={k} style={{flex:1,minWidth:110,padding:"10px 14px",background:T.elevated,borderRadius:10,border:`1px solid ${m.color}22`}}>
+                    <div style={{fontSize:18,color:m.color,marginBottom:4}}>{m.icon}</div>
+                    <div style={{fontSize:22,fontWeight:900,color:m.color,lineHeight:1}}>{cnt}</div>
+                    <div style={{fontSize:9,color:T.dim,marginTop:4}}>{m.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:8}}>{tabs.map(t=><button key={t.id} onClick={()=>setActiveTab(t.id)} style={{padding:"9px 20px",borderRadius:9,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",border:"none",background:activeTab===t.id?T.indigo:T.elevated,color:activeTab===t.id?"#fff":T.muted,transition:"all 0.15s"}}>{t.label}</button>)}</div>
+
+      {activeTab==="portfolio"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontSize:11,color:T.muted}}>Showing <strong style={{color:T.text}}>{portfolio.records.length}</strong> contributions · <strong style={{color:T.green}}>{portfolio.records.filter(r=>r.visible).length} shared</strong> · <strong style={{color:T.dim}}>{portfolio.records.filter(r=>!r.visible).length} private</strong></div>
+          {portfolio.records.map(r=><ContribCard key={r.id} record={r} onToggle={toggleVisibility}/>)}
+        </div>
+      )}
+
+      {activeTab==="timeline"&&(
+        <Card>
+          <SH icon="📅" title="Contribution Timeline"/>
+          <div style={{position:"relative",paddingLeft:32}}>
+            <div style={{position:"absolute",left:11,top:0,bottom:0,width:2,background:`linear-gradient(to bottom,${T.indigo},${T.purple}44)`,borderRadius:2}}/>
+            {portfolio.records.map((r,i)=>{
+              const tm=TYPE_META[r.type]||TYPE_META.code;
+              return(
+                <div key={r.id} style={{position:"relative",marginBottom:20}}>
+                  <div style={{position:"absolute",left:-25,top:6,width:14,height:14,borderRadius:"50%",background:tm.color,border:"2.5px solid white",boxShadow:`0 0 0 3px ${tm.color}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"white"}}>{tm.icon}</div>
+                  <div style={{padding:"14px 18px",background:T.elevated,borderRadius:12,border:`1px solid ${tm.color}22`,marginLeft:4}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:13,fontWeight:800,color:T.text}}>{r.project}</span><Tag color={tm.color} size={9}>{tm.label}</Tag></div>
+                      <span style={{fontSize:10,color:T.dim,fontFamily:"monospace"}}>{r.timestamp}</span>
+                    </div>
+                    <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{r.role} · {r.summary}</div>
+                    <div style={{display:"flex",gap:16,marginBottom:8}}>{[["Productivity",r.impact.productivity,T.indigo],["Adoption",r.impact.adoption,T.teal],["Revenue",r.impact.revenue,T.green]].map(([l,v,c])=><div key={l} style={{fontSize:9,color:T.dim}}>{l}: <strong style={{color:c}}>{v}%</strong></div>)}</div>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><VerifBadge type={r.verification} size={9}/><HashChip hash={r.hash}/>{r.skills.map(s=><Tag key={s} color={tm.color} size={9}>{s}</Tag>)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {activeTab==="analytics"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <Card>
+            <SH icon="◉" title="Impact by Contribution Type"/>
+            {Object.entries(TYPE_META).map(([type,tm])=>{
+              const recs=portfolio.records.filter(r=>r.type===type);
+              if(!recs.length)return null;
+              const avg=Math.round(recs.reduce((s,r)=>s+r.impact.productivity,0)/recs.length);
+              return(<div key={type} style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}><span style={{fontSize:13,color:tm.color}}>{tm.icon}</span><span style={{fontSize:11,fontWeight:700,color:T.text,flex:1}}>{tm.label}</span><span style={{fontSize:11,fontWeight:800,color:tm.color}}>{avg}%</span><span style={{fontSize:9,color:T.dim}}>({recs.length})</span></div><Bar value={avg} color={tm.color} h={6}/></div>);
+            })}
+          </Card>
+          <Card>
+            <SH icon="✦" title="Skill Frequency"/>
+            {(()=>{
+              const freq={};
+              portfolio.records.forEach(r=>r.skills.forEach(s=>{freq[s]=(freq[s]||0)+1;}));
+              const sorted=Object.entries(freq).sort((a,b)=>b[1]-a[1]);
+              const max=sorted[0]?.[1]||1;
+              return sorted.map(([skill,count])=>(
+                <div key={skill} style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:10}}><span style={{color:T.text,fontWeight:700}}>{skill}</span><span style={{color:T.indigoLt,fontWeight:800}}>{count} records</span></div><Bar value={count} max={max} color={T.indigo} h={5}/></div>
+              ));
+            })()}
+          </Card>
+          <Card>
+            <SH icon="▲" title="Overall Impact Profile"/>
+            {(()=>{
+              const avg={productivity:0,adoption:0,revenue:0};
+              portfolio.records.forEach(r=>{avg.productivity+=r.impact.productivity;avg.adoption+=r.impact.adoption;avg.revenue+=r.impact.revenue;});
+              const n=Math.max(portfolio.records.length,1);
+              avg.productivity=Math.round(avg.productivity/n);avg.adoption=Math.round(avg.adoption/n);avg.revenue=Math.round(avg.revenue/n);
+              return(<div style={{display:"flex",gap:24,alignItems:"center",justifyContent:"center",flexWrap:"wrap"}}>
+                <ImpactTriangle impact={avg} size={150} color={T.indigo}/>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {[["Collab Score",portfolio.collabScore,T.teal],["Innovation",portfolio.innovIndex,T.purple],["Leadership",portfolio.leaderScore,T.amber],["Trust",portfolio.trustScore,T.green]].map(([l,v,c])=>(
+                    <div key={l}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3,fontSize:10}}><span style={{color:T.muted}}>{l}</span><span style={{color:c,fontWeight:800}}>{v}</span></div><Bar value={v} color={c} h={5}/></div>
+                  ))}
+                </div>
+              </div>);
+            })()}
+          </Card>
+          <Card>
+            <SH icon="⬢" title="Verification Trust Matrix"/>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {portfolio.records.map(r=>{
+                const vm=VERIF_META[r.verification]||VERIF_META.system_verified;
+                const tm=TYPE_META[r.type]||TYPE_META.code;
+                return(<div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:T.elevated,borderRadius:10,border:`1px solid ${vm.color}18`}}>
+                  <span style={{fontSize:13,color:tm.color}}>{tm.icon}</span>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.project}</div><div style={{fontSize:9,color:T.dim,fontFamily:"monospace",marginTop:2}}>{r.id}</div></div>
+                  <VerifBadge type={r.verification} size={9}/>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:r.visible?T.green:T.dim,flexShrink:0}}/>
+                </div>);
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {activeTab==="api"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Card>
+            <SH icon="⚙" title="WCIS API Reference"/>
+            {[
+              {method:"POST",  path:"/portfolio/contribution",       color:T.indigo, desc:"Create a new verified contribution record.",                   body:'{ project, type, role, summary, impact, artifacts, skills }'},
+              {method:"GET",   path:"/portfolio/:employee_id",       color:T.green,  desc:"Fetch full portfolio for an employee (bearer token required).", body:null},
+              {method:"PUT",   path:"/portfolio/contribution/:id",   color:T.amber,  desc:"Update a contribution. Rehashes record. Audit logged.",         body:'{ summary?, impact?, artifacts?, visible? }'},
+              {method:"DELETE",path:"/portfolio/contribution/:id",   color:T.red,    desc:"Soft-delete. Appended to immutable audit log.",                 body:null},
+              {method:"POST",  path:"/portfolio/share",              color:T.indigo, desc:"Generate signed share token with scope and expiry.",            body:'{ employee_id, scope, mode, expiresIn, consentTimestamp }'},
+              {method:"GET",   path:"/portfolio/shared/:token",      color:T.green,  desc:"Recruiter read-only view. Logs access. No auth needed.",        body:null},
+              {method:"DELETE",path:"/portfolio/shared/:token",      color:T.red,    desc:"Revoke a share token immediately.",                             body:null},
+              {method:"POST",  path:"/portfolio/verify",             color:T.teal,   desc:"Submit for manager/peer verification.",                         body:'{ contribution_id, verifier_id, type, signature }'},
+              {method:"GET",   path:"/portfolio/audit/:employee_id", color:T.green,  desc:"Fetch immutable audit log of all access events.",               body:null},
+              {method:"GET",   path:"/portfolio/export/:employee_id",color:T.purple, desc:"Export full portfolio as signed JSON for portability.",          body:null},
+            ].map((ep,i)=>(
+              <div key={i} style={{padding:"12px 16px",background:T.elevated,borderRadius:10,border:`1px solid ${T.border}`,marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,fontWeight:900,color:ep.color,background:`${ep.color}15`,padding:"3px 10px",borderRadius:6,fontFamily:"monospace",flexShrink:0}}>{ep.method}</span>
+                  <span style={{fontSize:12,fontFamily:"monospace",color:T.text,fontWeight:700}}>{ep.path}</span>
+                </div>
+                <div style={{fontSize:11,color:T.muted,marginBottom:ep.body?6:0}}>{ep.desc}</div>
+                {ep.body&&<code style={{fontSize:9,color:T.teal,background:"rgba(0,0,0,0.06)",padding:"4px 8px",borderRadius:5,display:"block",fontFamily:"monospace"}}>Body: {ep.body}</code>}
+              </div>
+            ))}
+          </Card>
+          <Card glow={T.amber}>
+            <SH icon="🔒" title="Security Model"/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              {[
+                {icon:"🔐",title:"Digital Signatures",    body:"Every contribution hashed with SHA-256 at creation. Rehashed on any update. Hash chain stored immutably."},
+                {icon:"🔑",title:"Access Control",        body:"Bearer JWT required for all write ops. Share tokens are scoped, time-limited, and single-use revocable."},
+                {icon:"📋",title:"Immutable Audit Log",   body:"Every view, share, and revoke event appended to a tamper-evident log with actor, timestamp, and IP."},
+                {icon:"🛡",title:"Tamper Detection",      body:"On every GET, server recomputes hash and compares stored value. Mismatch triggers integrity alert."},
+                {icon:"🔏",title:"Portable Encryption",  body:"Exported portfolios encrypted with employee's public key. Employer cannot decrypt post-export."},
+                {icon:"✅",title:"Consent Layer",         body:"Sharing requires timestamped consent. Consent is logged and cryptographically bound to the token."},
+              ].map(s=>(
+                <div key={s.title} style={{padding:"14px",background:T.elevated,borderRadius:10,border:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:18,marginBottom:6}}>{s.icon}</div>
+                  <div style={{fontSize:12,fontWeight:800,color:T.text,marginBottom:4}}>{s.title}</div>
+                  <div style={{fontSize:10,color:T.muted,lineHeight:1.6}}>{s.body}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -3285,6 +3858,7 @@ const PAGES = [
   { id: "research",  label: "Research Platform",   icon: "🔬" },
   { id: "knowledge", label: "Knowledge Graph",      icon: "🧠" },
   { id: "darkmatter",label: "Dark Matter",          icon: "🌑" },
+  { id: "wcis",      label: "Contribution Portfolio", icon: "🏛" },
 ];
 
 export default function DevIQ() {
@@ -3450,6 +4024,7 @@ export default function DevIQ() {
           {page === "research" && <ResearchPage data={context} />}
           {page === "knowledge" && <KnowledgeGraphPage data={context} />}
           {page === "darkmatter" && <DarkMatterPage data={context} />}
+          {page === "wcis" && <WCISPage data={context} />}
         </main>
       </div>
     </div>
