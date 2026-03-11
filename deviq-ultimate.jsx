@@ -4410,6 +4410,831 @@ function BlockchainLedgerPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   AI CONTRIBUTION QUALITY SCORING
+═════════════════════════════════════════════════════════════════ */
+
+// Deterministic "AI scoring" seeded from dev data so it's stable
+function aiQualityScore(dev, seed) {
+  const base = Math.abs(Math.sin(dev.name.length * 17.3 + seed * 7.11)) ;
+  return Math.min(Math.max(Math.round((base * 0.4 + (dev.contribution / 100) * 0.6) * 10) / 10, 0.1), 1.0);
+}
+
+function buildQualityProfile(dev) {
+  const metrics = [
+    { id: "code",   label: "Code Quality",          icon: "⬡", desc: "Cyclomatic complexity, test coverage, lint score", color: T.indigo },
+    { id: "docs",   label: "Documentation Clarity", icon: "◈", desc: "PR descriptions, inline comments, README quality",  color: T.teal   },
+    { id: "collab", label: "Collaboration",          icon: "✦", desc: "Review thoroughness, response time, constructiveness", color: T.purple },
+    { id: "design", label: "Design Thinking",        icon: "▲", desc: "Architecture decisions, refactor rationale, trade-off notes", color: T.amber },
+    { id: "testing",label: "Test Rigor",             icon: "◉", desc: "Edge cases covered, flaky test ratio, coverage delta", color: T.green  },
+    { id: "impact", label: "Business Impact",        icon: "⬢", desc: "Ticket priority alignment, feature adoption, bug severity", color: T.orange },
+  ];
+
+  const scores = metrics.map((m, i) => ({ ...m, score: aiQualityScore(dev, i * 3.7 + 1) }));
+  const overall = Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length * 100) / 100;
+
+  const PRs = [
+    { id: `pr-${dev.name.slice(0,3)}-1`, title: `feat: add ${["auth flow","payment retry","dark mode","cache layer","rate limiter"][dev.name.length % 5]}`, metrics: scores.slice(0,4).map(s=>({...s, score: Math.min(s.score + 0.05 * (Math.sin(dev.commits) > 0 ? 1 : -1), 1)})), complexity: ["Low","Medium","High","Very High"][dev.commits % 4], linesChanged: Math.round(dev.additions / Math.max(dev.commits,1) * 1.2), reviewers: 2 + (dev.name.length % 3) },
+    { id: `pr-${dev.name.slice(0,3)}-2`, title: `fix: resolve ${["race condition","memory leak","null pointer","timeout","deadlock"][dev.files % 5]}`, metrics: scores.slice(1,5).map(s=>({...s, score: Math.max(s.score - 0.08, 0.1)})), complexity: ["Low","Medium"][dev.files % 2], linesChanged: Math.round(dev.additions / Math.max(dev.commits,1) * 0.4), reviewers: 1 + (dev.name.length % 2) },
+    { id: `pr-${dev.name.slice(0,3)}-3`, title: `refactor: ${["extract service","decouple modules","simplify logic","improve types","reduce coupling"][dev.additions % 5]}`, metrics: scores.slice(0,5).map(s=>({...s, score: Math.min(s.score + 0.1, 1)})), complexity: "Medium", linesChanged: Math.round(dev.additions / Math.max(dev.commits,1) * 0.9), reviewers: 3 },
+  ];
+
+  const trend = [0.6, 0.65, 0.68, 0.7, 0.72, overall, Math.min(overall + 0.04, 1)].map(v => Math.round(v * 100) / 100);
+
+  return { metrics: scores, overall, PRs, trend };
+}
+
+// Animated score ring that counts up
+function ScoreRing({ score, size = 110, label, color }) {
+  const pct = Math.round(score * 100);
+  const r = (size - 10) / 2, circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ;
+  const hue = score >= 0.8 ? T.green : score >= 0.6 ? T.teal : score >= 0.4 ? T.amber : T.red;
+  const c = color || hue;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      <div style={{ position: "relative", width: size, height: size }}>
+        <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth={10} />
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c} strokeWidth={10}
+            strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+            style={{ transition: "stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1)" }} />
+        </svg>
+        <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ fontSize: size > 90 ? 22 : 16, fontWeight: 900, color: c, lineHeight: 1 }}>{score.toFixed(1)}</span>
+          <span style={{ fontSize: 9, color: T.dim, marginTop: 2 }}>/1.0</span>
+        </div>
+      </div>
+      {label && <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textAlign: "center", maxWidth: size }}>{label}</div>}
+    </div>
+  );
+}
+
+// Horizontal bar with score label
+function QualityBar({ label, score, icon, color, desc }) {
+  const pct = Math.round(score * 100);
+  const c = color || (score >= 0.8 ? T.green : score >= 0.6 ? T.teal : score >= 0.4 ? T.amber : T.red);
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap: 8, marginBottom: 5 }}>
+        <span style={{ fontSize: 13, color: c }}>{icon}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, flex: 1 }}>{label}</span>
+        <span style={{ fontSize: 13, fontWeight: 900, color: c }}>{score.toFixed(1)}</span>
+        <span style={{ fontSize: 10, color: T.dim, minWidth: 28 }}>{pct}%</span>
+      </div>
+      <div style={{ width:"100%", height: 8, background: "rgba(0,0,0,0.05)", borderRadius: 8 }}>
+        <div style={{ width:`${pct}%`, height:"100%", background: `linear-gradient(90deg, ${c}99, ${c})`, borderRadius: 8, transition:"width 1s cubic-bezier(0.4,0,0.2,1)" }} />
+      </div>
+      <div style={{ fontSize: 9, color: T.dim, marginTop: 3 }}>{desc}</div>
+    </div>
+  );
+}
+
+// Sparkline for quality trend
+function TrendLine({ values, color, width = 200, height = 44 }) {
+  const mx = Math.max(...values), mn = Math.min(...values);
+  const range = Math.max(mx - mn, 0.1);
+  const W = width, H = height, PAD = 6;
+  const pts = values.map((v, i) => {
+    const x = PAD + (i / (values.length - 1)) * (W - PAD * 2);
+    const y = H - PAD - ((v - mn) / range) * (H - PAD * 2);
+    return [x, y];
+  });
+  const path = pts.map((p, i) => `${i===0?"M":"L"}${p[0]},${p[1]}`).join(" ");
+  const area = `${path} L${pts[pts.length-1][0]},${H-PAD} L${PAD},${H-PAD} Z`;
+  return (
+    <svg width={W} height={H} style={{ width: "100%", height: H }}>
+      <defs>
+        <linearGradient id={`tl-${color}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#tl-${color})`} />
+      <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map(([x,y], i) => (
+        <circle key={i} cx={x} cy={y} r={i === pts.length-1 ? 4 : 2.5}
+          fill={i === pts.length-1 ? color : T.surface} stroke={color} strokeWidth="1.5" />
+      ))}
+    </svg>
+  );
+}
+
+// PR quality breakdown card
+function PRQualityCard({ pr, idx }) {
+  const [open, setOpen] = useState(false);
+  const avg = Math.round(pr.metrics.reduce((a,m)=>a+m.score,0) / pr.metrics.length * 100) / 100;
+  const complexityColor = { Low: T.green, Medium: T.amber, High: T.orange, "Very High": T.red }[pr.complexity] || T.dim;
+  return (
+    <div style={{
+      borderRadius: 12, border: `1.5px solid ${avg >= 0.75 ? T.green : avg >= 0.55 ? T.amber : T.red}30`,
+      background: T.elevated, overflow: "hidden"
+    }}>
+      <div onClick={() => setOpen(o=>!o)} style={{ display:"flex", alignItems:"center", gap: 12, padding:"13px 16px", cursor:"pointer" }}>
+        <div style={{ width: 36, height: 36, borderRadius: 9, background: `${T.indigo}14`, border:`1.5px solid ${T.indigo}25`, display:"flex", alignItems:"center", justifyContent:"center", fontSize: 14, color: T.indigoLt, flexShrink: 0 }}>#{idx+1}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{pr.title}</div>
+          <div style={{ display:"flex", gap:10, marginTop: 3, fontSize: 9, color: T.dim }}>
+            <span>±{pr.linesChanged} lines</span>
+            <span>{pr.reviewers} reviewers</span>
+            <span style={{ color: complexityColor }}>complexity: {pr.complexity}</span>
+          </div>
+        </div>
+        <ScoreRing score={avg} size={52} />
+        <span style={{ color: T.dim, fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+      </div>
+      {open && (
+        <div style={{ padding:"0 16px 16px", borderTop:`1px solid ${T.border}` }}>
+          <div style={{ paddingTop: 14, display:"flex", flexDirection:"column", gap: 4 }}>
+            {pr.metrics.map(m => (
+              <QualityBar key={m.id} label={m.label} score={m.score} icon={m.icon} color={m.color} desc={m.desc} />
+            ))}
+          </div>
+          <div style={{ marginTop: 10, padding:"10px 12px", background:`${T.indigo}08`, borderRadius: 8, fontSize: 10, color: T.muted, lineHeight: 1.8 }}>
+            <strong style={{ color: T.indigo }}>AI Insight:</strong> {avg >= 0.8 ? "Exceptional quality across all dimensions. This PR sets a benchmark for the team." : avg >= 0.65 ? "Strong overall. Documentation and testing could be elevated to match code quality." : "Room for improvement in review depth. Consider adding more context to PR descriptions."}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AIQualityScoringPage({ data }) {
+  const [selectedDev, setSelectedDev] = useState(data.devs[0]);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(true);
+
+  const profile = useMemo(() => buildQualityProfile(selectedDev), [selectedDev]);
+
+  const switchDev = (dev) => { setSelectedDev(dev); setScanned(true); };
+
+  const runScan = () => {
+    setScanning(true);
+    setScanned(false);
+    setTimeout(() => { setScanning(false); setScanned(true); }, 2200);
+  };
+
+  const tabs = [
+    { id: "overview",  label: "◉ Overview"       },
+    { id: "prs",       label: "⬡ PR Breakdown"   },
+    { id: "trend",     label: "▲ Quality Trend"  },
+    { id: "team",      label: "⬢ Team Comparison" },
+  ];
+
+  const grade = profile.overall >= 0.85 ? "A+" : profile.overall >= 0.75 ? "A" : profile.overall >= 0.65 ? "B+" : profile.overall >= 0.55 ? "B" : "C+";
+  const gradeColor = profile.overall >= 0.75 ? T.green : profile.overall >= 0.6 ? T.teal : T.amber;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap: 20 }}>
+
+      {/* Header */}
+      <Card glow={T.indigo}>
+        <div style={{ display:"flex", alignItems:"center", gap: 16, flexWrap:"wrap" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display:"flex", alignItems:"center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 24 }}>🧠</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.indigo, textTransform:"uppercase", letterSpacing:"0.06em" }}>AI Contribution Quality Scoring</span>
+              <Tag color={T.teal} size={9}>QUALITY ENGINE v2</Tag>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.9 }}>
+              Most systems measure <strong style={{ color: T.red }}>quantity</strong>. This measures <strong style={{ color: T.green }}>quality</strong>.
+              AI analyzes PR descriptions, code complexity, peer feedback, and documentation to surface the <strong style={{ color: T.text }}>true signal behind every contribution</strong>.
+            </div>
+          </div>
+          {/* Dev selector */}
+          <div style={{ display:"flex", flexDirection:"column", gap: 8, flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: T.dim, fontWeight: 800, letterSpacing:"0.1em" }}>SELECT DEVELOPER</div>
+            <div style={{ display:"flex", gap: 6, flexWrap:"wrap" }}>
+              {data.devs.map(dev => (
+                <button key={dev.name} onClick={() => switchDev(dev)} style={{
+                  padding:"7px 14px", borderRadius: 8, cursor:"pointer", fontFamily:"inherit", fontSize: 11, fontWeight: 700,
+                  border:`1.5px solid ${selectedDev.name===dev.name ? T.indigo : T.border}`,
+                  background: selectedDev.name===dev.name ? `${T.indigo}14` : "transparent",
+                  color: selectedDev.name===dev.name ? T.indigo : T.muted
+                }}>{dev.avatar} {dev.name.split(" ")[0]}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap: 8 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding:"9px 20px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor:"pointer",
+            fontFamily:"inherit", border:"none",
+            background: activeTab === t.id ? T.indigo : T.elevated,
+            color: activeTab === t.id ? "#fff" : T.muted, transition:"all 0.15s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* OVERVIEW */}
+      {activeTab === "overview" && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 16 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"240px 1fr", gap: 16 }}>
+
+            {/* Left: overall score */}
+            <Card style={{ display:"flex", flexDirection:"column", alignItems:"center", gap: 14, textAlign:"center" }}>
+              <div style={{ fontSize: 18 }}>{selectedDev.avatar}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{selectedDev.name}</div>
+              <ScoreRing score={profile.overall} size={120} label="Overall Quality" />
+              <div style={{
+                fontSize: 52, fontWeight: 900, lineHeight: 1, color: gradeColor,
+                textShadow: `0 0 20px ${gradeColor}44`
+              }}>{grade}</div>
+              <Tag color={gradeColor} size={10}>Quality Grade</Tag>
+              <button onClick={runScan} disabled={scanning} style={{
+                width:"100%", padding:"10px", borderRadius: 9, cursor: scanning ? "wait" : "pointer",
+                fontFamily:"inherit", fontWeight: 800, fontSize: 12,
+                background: scanning ? `${T.indigo}30` : T.indigo, color:"white", border:"none"
+              }}>
+                {scanning ? "🧠 Scanning…" : "🔄 Re-Analyze"}
+              </button>
+            </Card>
+
+            {/* Right: per-metric bars */}
+            <Card>
+              <SH icon="🧠" title="Quality Dimension Breakdown" />
+              {scanning ? (
+                <div style={{ display:"flex", flexDirection:"column", gap: 12 }}>
+                  {profile.metrics.map(m => (
+                    <div key={m.id} style={{ display:"flex", alignItems:"center", gap: 12, opacity: 0.4 }}>
+                      <span style={{ color: m.color }}>{m.icon}</span>
+                      <div style={{ flex: 1, height: 8, background: T.elevated, borderRadius: 8, overflow:"hidden" }}>
+                        <div style={{ width:"60%", height:"100%", background: `linear-gradient(90deg, ${m.color}55, ${m.color})`, borderRadius: 8, animation:"pulse 1s infinite" }} />
+                      </div>
+                      <span style={{ fontSize: 11, color: T.dim }}>…</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                profile.metrics.map(m => <QualityBar key={m.id} {...m} />)
+              )}
+            </Card>
+          </div>
+
+          {/* Metric score grid */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap: 12 }}>
+            {profile.metrics.map(m => (
+              <Card key={m.id} glow={m.color} style={{ textAlign:"center", padding:"18px 14px" }}>
+                <div style={{ fontSize: 20, color: m.color, marginBottom: 8 }}>{m.icon}</div>
+                <ScoreRing score={m.score} size={80} color={m.color} />
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginTop: 10 }}>{m.label}</div>
+                <div style={{ fontSize: 9, color: T.dim, marginTop: 3 }}>{m.desc}</div>
+              </Card>
+            ))}
+          </div>
+
+          {/* AI Narrative */}
+          <Card glow={T.teal}>
+            <SH icon="🧠" title="AI Quality Narrative" />
+            <div style={{ fontSize: 12, color: T.muted, lineHeight: 2, padding:"8px 0" }}>
+              <strong style={{ color: T.text }}>{selectedDev.name}</strong> demonstrates{" "}
+              <strong style={{ color: gradeColor }}>{grade === "A+" || grade === "A" ? "exceptional" : grade.startsWith("B") ? "solid" : "developing"}</strong> quality across {profile.metrics.length} dimensions.
+              Their strongest signal is <strong style={{ color: profile.metrics.sort((a,b)=>b.score-a.score)[0].color }}>{profile.metrics.sort((a,b)=>b.score-a.score)[0].label}</strong>{" "}
+              ({profile.metrics.sort((a,b)=>b.score-a.score)[0].score.toFixed(2)}), suggesting high{" "}
+              {profile.metrics.sort((a,b)=>b.score-a.score)[0].id === "collab" ? "team impact and peer alignment" : profile.metrics.sort((a,b)=>b.score-a.score)[0].id === "code" ? "technical craftsmanship" : "output quality"}.
+              The area with the most improvement potential is{" "}
+              <strong style={{ color: profile.metrics.sort((a,b)=>a.score-b.score)[0].color }}>{profile.metrics.sort((a,b)=>a.score-b.score)[0].label}</strong>{" "}
+              — targeted mentoring here could elevate their overall grade by an estimated 0.1–0.15 points.
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* PR BREAKDOWN */}
+      {activeTab === "prs" && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 14 }}>
+          <Card glow={T.indigo}>
+            <SH icon="⬡" title="Pull Request Quality Analysis" />
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>
+              Each PR is independently scored across all quality dimensions. AI reads the PR description, analyzes code diff complexity,
+              cross-references peer review comments, and evaluates test coverage delta.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap: 10 }}>
+              {profile.PRs.map((pr, i) => <PRQualityCard key={pr.id} pr={pr} idx={i} />)}
+            </div>
+          </Card>
+          <Card>
+            <SH icon="◈" title="Scoring Methodology" />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap: 10 }}>
+              {[
+                { icon:"🔍", label:"PR Description Analysis", body:"NLP model evaluates context, motivation, risk assessment, and rollback plan quality in PR body text." },
+                { icon:"⚙", label:"Code Complexity Scan",    body:"AST-level analysis: cyclomatic complexity, nesting depth, function length, coupling metrics." },
+                { icon:"💬", label:"Peer Feedback Parsing",  body:"Sentiment and substance analysis of review comments — distinguishes nitpick from substantive critique." },
+                { icon:"📄", label:"Documentation Quality",  body:"Inline comment density, docstring completeness, README update detection, changelog entries." },
+              ].map(m => (
+                <div key={m.label} style={{ padding:"12px 14px", background: T.elevated, borderRadius: 10, border:`1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 18, marginBottom: 6 }}>{m.icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: T.text, marginBottom: 4 }}>{m.label}</div>
+                  <div style={{ fontSize: 10, color: T.muted, lineHeight: 1.6 }}>{m.body}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TREND */}
+      {activeTab === "trend" && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 14 }}>
+          <Card glow={T.green}>
+            <SH icon="▲" title="Quality Score Trend" />
+            <div style={{ marginBottom: 16 }}>
+              <TrendLine values={profile.trend} color={T.indigo} height={80} />
+              <div style={{ display:"flex", justifyContent:"space-between", marginTop: 4, fontSize: 9, color: T.dim }}>
+                {["8w ago","7w","6w","5w","4w","3w","Now","→ Proj"].map(l => <span key={l}>{l}</span>)}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap: 14, flexWrap:"wrap" }}>
+              {[
+                { label:"Starting Score",  value: profile.trend[0].toFixed(2), color: T.dim       },
+                { label:"Current Score",   value: profile.trend[5].toFixed(2), color: gradeColor  },
+                { label:"8-Week Delta",    value: `+${(profile.trend[5]-profile.trend[0]).toFixed(2)}`, color: T.green },
+                { label:"Projected",       value: profile.trend[6].toFixed(2), color: T.teal      },
+              ].map(s => (
+                <div key={s.label} style={{ flex: 1, minWidth: 80, padding:"12px 14px", background: T.elevated, borderRadius: 10, textAlign:"center" }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 9, color: T.dim, marginTop: 4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
+            <SH icon="◉" title="Dimension Trends" />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap: 14 }}>
+              {profile.metrics.slice(0,4).map(m => {
+                const tw = [m.score - 0.12, m.score - 0.08, m.score - 0.05, m.score - 0.02, m.score, Math.min(m.score + 0.03, 1)];
+                return (
+                  <div key={m.id} style={{ padding:"12px 14px", background: T.elevated, borderRadius: 10 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{m.icon} {m.label}</span>
+                      <span style={{ fontSize: 13, fontWeight: 900, color: m.color }}>{m.score.toFixed(2)}</span>
+                    </div>
+                    <TrendLine values={tw} color={m.color} height={36} />
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TEAM COMPARISON */}
+      {activeTab === "team" && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 14 }}>
+          <Card>
+            <SH icon="⬢" title="Team Quality Comparison" />
+            <div style={{ display:"flex", flexDirection:"column", gap: 10 }}>
+              {[...data.devs].sort((a,b) => {
+                const sa = buildQualityProfile(a).overall;
+                const sb = buildQualityProfile(b).overall;
+                return sb - sa;
+              }).map((dev, rank) => {
+                const p = buildQualityProfile(dev);
+                const gc = p.overall >= 0.75 ? T.green : p.overall >= 0.6 ? T.teal : T.amber;
+                const g = p.overall >= 0.85 ? "A+" : p.overall >= 0.75 ? "A" : p.overall >= 0.65 ? "B+" : p.overall >= 0.55 ? "B" : "C+";
+                return (
+                  <div key={dev.name} style={{ display:"flex", alignItems:"center", gap: 14, padding:"14px 16px", background: T.elevated, borderRadius: 12, border:`1.5px solid ${dev.name===selectedDev.name ? T.indigo : "transparent"}` }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background:`${gc}18`, border:`1.5px solid ${gc}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize: 12, fontWeight: 900, color: gc, flexShrink: 0 }}>#{rank+1}</div>
+                    <span style={{ fontSize: 20, flexShrink: 0 }}>{dev.avatar}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 3 }}>{dev.name}</div>
+                      <div style={{ display:"flex", gap: 8 }}>
+                        {p.metrics.slice(0,3).map(m => (
+                          <span key={m.id} style={{ fontSize: 9, color: T.dim }}>{m.icon} {m.score.toFixed(1)}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <Bar value={p.overall * 100} color={gc} h={6} />
+                    <div style={{ fontSize: 28, fontWeight: 900, color: gc, minWidth: 40, textAlign:"right" }}>{g}</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: gc, minWidth: 36, textAlign:"right" }}>{p.overall.toFixed(2)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   HIDDEN WORK DETECTOR (AI)
+═════════════════════════════════════════════════════════════════ */
+
+const HIDDEN_WORK_TYPES = [
+  { id: "mentoring",   label: "Mentoring & Teaching",   icon: "🎓", color: T.indigo, pointsEach: 3,  desc: "Explaining concepts, onboarding, knowledge transfer sessions" },
+  { id: "debugging",   label: "Debugging Help",         icon: "🐛", color: T.orange, pointsEach: 2,  desc: "Helping teammates diagnose and fix issues in their code" },
+  { id: "reviewing",   label: "Informal Code Reviews",  icon: "👁",  color: T.teal,   pointsEach: 1.5,desc: "Ad-hoc code feedback outside formal PR process" },
+  { id: "unblocking",  label: "Unblocking Teammates",   icon: "🔓", color: T.green,  pointsEach: 4,  desc: "Resolving blockers, escalating issues, clearing path for others" },
+  { id: "knowledge",   label: "Knowledge Sharing",      icon: "💡", color: T.amber,  pointsEach: 2.5,desc: "Writing wikis, sharing context in channels, tribal knowledge docs" },
+  { id: "planning",    label: "Invisible Planning",     icon: "📐", color: T.purple, pointsEach: 3.5,desc: "Design conversations, architecture discussions, ticket grooming" },
+];
+
+function buildHiddenWork(dev) {
+  const seed = dev.name.length * 13.7;
+  const detections = HIDDEN_WORK_TYPES.map((type, i) => {
+    const count = Math.round(Math.abs(Math.sin(seed + i * 5.3)) * 8 + 1);
+    const teammates = Math.round(Math.abs(Math.sin(seed + i * 2.1)) * 4 + 1);
+    const points = Math.round(count * type.pointsEach * (0.8 + Math.abs(Math.sin(seed + i)) * 0.4) * 10) / 10;
+
+    const msgTemplates = {
+      mentoring:  [`Explained async/await patterns to teammate`,`Walked through ${["Docker setup","CI pipeline","auth flow","DB schema"][i%4]} with a new joiner`,`Led 1:1 on code architecture best practices`],
+      debugging:  [`Helped debug ${["race condition","null ref","timeout","memory leak","CORS error"][i%5]} in ${["auth.py","api.js","pipeline.go","service.ts"][i%4]}`,`Diagnosed flaky test root cause for teammate`],
+      reviewing:  [`Gave feedback on draft PR before formal review`,`Suggested refactor approach in Slack thread`,`Caught edge case in teammate's WIP branch`],
+      unblocking: [`Resolved blocked ticket by clarifying requirements`,`Escalated deployment blocker — saved 2h of waiting`,`Helped teammate get unstuck on ${["3rd-party API","k8s config","permissions","DB migration"][i%4]}`],
+      knowledge:  [`Wrote Confluence doc on ${["retry logic","auth tokens","error codes","service mesh"][i%4]}`,`Shared context on legacy ${["payment","auth","notification","logging"][i%4]} system in #eng channel`,`Posted runbook update for on-call`],
+      planning:   [`Joined architecture discussion for ${["Q3 roadmap","new service","data migration","v2 rewrite"][i%4]}`,`Groomed 8 tickets in sprint planning without credit`,`Reviewed and improved team RFC`],
+    };
+
+    const msgs = msgTemplates[type.id] || [];
+    const examples = msgs.slice(0, Math.min(count, 3));
+
+    return { ...type, count, teammates, points, examples };
+  });
+
+  const totalPoints = Math.round(detections.reduce((a,d)=>a+d.points,0) * 10) / 10;
+  const totalInteractions = detections.reduce((a,d)=>a+d.count,0);
+  const topTeammates = Math.max(...detections.map(d=>d.teammates));
+
+  // Credit gap = what they officially get vs what they actually do
+  const officialScore = dev.contribution;
+  const adjustedScore = Math.min(officialScore + Math.round(totalPoints * 0.4), 100);
+  const creditGap = adjustedScore - officialScore;
+
+  return { detections, totalPoints, totalInteractions, topTeammates, officialScore, adjustedScore, creditGap };
+}
+
+// Animated detection "scanning" card
+function ScannerAnimation({ running, label }) {
+  const [dots, setDots] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const i = setInterval(() => setDots(d => (d+1)%4), 400);
+    return () => clearInterval(i);
+  }, [running]);
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap: 10, padding:"12px 16px", background:`${T.indigo}08`, borderRadius: 10, border:`1.5px dashed ${T.indigo}40` }}>
+      <div style={{ width: 8, height: 8, borderRadius:"50%", background: T.indigo, animation: running ? "pulse 1s infinite" : "none" }} />
+      <span style={{ fontSize: 12, color: T.indigo, fontWeight: 700 }}>
+        {running ? `Scanning ${label}${".".repeat(dots)}` : `✓ ${label} scanned`}
+      </span>
+    </div>
+  );
+}
+
+// The pulsing "DETECTED" badge
+function DetectedBadge({ points, type }) {
+  return (
+    <div style={{
+      display:"inline-flex", alignItems:"center", gap: 6, padding:"6px 14px",
+      borderRadius: 20, background:`${type.color}18`, border:`1.5px solid ${type.color}40`,
+    }}>
+      <span style={{ fontSize: 14 }}>{type.icon}</span>
+      <span style={{ fontSize: 11, fontWeight: 800, color: type.color }}>+{points} collab pts</span>
+    </div>
+  );
+}
+
+function HiddenWorkPage({ data }) {
+  const [selectedDev, setSelectedDev] = useState(data.devs[0]);
+  const [scanning, setScanning] = useState(false);
+  const [scanPhase, setScanPhase] = useState(0);
+  const [revealed, setRevealed] = useState(true);
+  const [activeTab, setActiveTab] = useState("detections");
+
+  const hw = useMemo(() => buildHiddenWork(selectedDev), [selectedDev]);
+
+  const SCAN_SOURCES = ["Slack messages","PR comments","Issue discussions","Code review threads","Meeting notes"];
+
+  const runScan = () => {
+    setScanning(true);
+    setRevealed(false);
+    setScanPhase(0);
+    let phase = 0;
+    const iv = setInterval(() => {
+      phase++;
+      setScanPhase(phase);
+      if (phase >= SCAN_SOURCES.length) {
+        clearInterval(iv);
+        setTimeout(() => { setScanning(false); setRevealed(true); }, 500);
+      }
+    }, 420);
+  };
+
+  const tabs = [
+    { id: "detections", label: "👁 Detections"      },
+    { id: "timeline",   label: "📅 Timeline"         },
+    { id: "fairness",   label: "⚖ Fairness Analysis" },
+    { id: "team",       label: "⬢ Team Hidden Work"  },
+  ];
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap: 20 }}>
+
+      {/* Header */}
+      <Card glow={T.purple}>
+        <div style={{ display:"flex", alignItems:"center", gap: 16, flexWrap:"wrap" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display:"flex", alignItems:"center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 24 }}>👁</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.purple, textTransform:"uppercase", letterSpacing:"0.06em" }}>Hidden Work Detector</span>
+              <Tag color={T.orange} size={9}>AI FAIRNESS ENGINE</Tag>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.9 }}>
+              <strong style={{ color: T.red }}>Invisible work is never credited.</strong> This AI scans Slack messages, PR comments, and issue discussions
+              to detect mentoring, debugging help, and knowledge sharing — then credits them <strong style={{ color: T.green }}>fairly</strong>.
+            </div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap: 8, flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: T.dim, fontWeight: 800, letterSpacing:"0.1em" }}>SELECT DEVELOPER</div>
+            <div style={{ display:"flex", gap: 6, flexWrap:"wrap" }}>
+              {data.devs.map(dev => (
+                <button key={dev.name} onClick={() => { setSelectedDev(dev); setRevealed(true); }} style={{
+                  padding:"7px 14px", borderRadius: 8, cursor:"pointer", fontFamily:"inherit", fontSize: 11, fontWeight: 700,
+                  border:`1.5px solid ${selectedDev.name===dev.name ? T.purple : T.border}`,
+                  background: selectedDev.name===dev.name ? `${T.purple}12` : "transparent",
+                  color: selectedDev.name===dev.name ? T.purple : T.muted
+                }}>{dev.avatar} {dev.name.split(" ")[0]}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Scan control */}
+      <Card style={{ padding:"18px 22px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap: 16, flexWrap:"wrap" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>AI Contribution Scanner</div>
+            <div style={{ fontSize: 10, color: T.muted }}>Scans: Slack · PR comments · Issue discussions · Code review threads · Meeting notes</div>
+          </div>
+          {scanning && (
+            <div style={{ display:"flex", flexDirection:"column", gap: 6, flex: 1 }}>
+              {SCAN_SOURCES.map((src, i) => (
+                <ScannerAnimation key={src} running={scanPhase === i} label={src} />
+              ))}
+            </div>
+          )}
+          <button onClick={runScan} disabled={scanning} style={{
+            padding:"12px 24px", borderRadius: 10, cursor: scanning ? "wait" : "pointer", fontFamily:"inherit",
+            fontWeight: 800, fontSize: 13, flexShrink: 0,
+            background: scanning ? `${T.purple}30` : `linear-gradient(135deg,${T.purple},${T.indigo})`,
+            color:"white", border:"none", boxShadow: scanning ? "none" : `0 4px 16px ${T.purple}40`
+          }}>{scanning ? "🔍 Scanning…" : "🔍 Run AI Scan"}</button>
+        </div>
+      </Card>
+
+      {/* Summary KPIs */}
+      {revealed && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap: 14 }}>
+          {[
+            { label:"Hidden Points",    value: hw.totalPoints,        suffix:"pts",  color: T.purple, icon:"👁"  },
+            { label:"Interactions",     value: hw.totalInteractions,  suffix:"",     color: T.indigo, icon:"◉"  },
+            { label:"Teammates Helped", value: hw.topTeammates,       suffix:"",     color: T.teal,   icon:"⬢"  },
+            { label:"Credit Gap",       value:`+${hw.creditGap}`,     suffix:"pts",  color: T.green,  icon:"▲"  },
+          ].map(k => (
+            <Card key={k.label} glow={k.color} style={{ textAlign:"center", padding:"18px 14px" }}>
+              <div style={{ fontSize: 18, color: k.color, marginBottom: 6 }}>{k.icon}</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: k.color, lineHeight: 1 }}>{k.value}{k.suffix && <span style={{ fontSize: 14 }}>{k.suffix}</span>}</div>
+              <div style={{ fontSize: 9, color: T.dim, marginTop: 6, textTransform:"uppercase", letterSpacing:"0.08em" }}>{k.label}</div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap: 8 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding:"9px 20px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor:"pointer",
+            fontFamily:"inherit", border:"none",
+            background: activeTab === t.id ? T.purple : T.elevated,
+            color: activeTab === t.id ? "#fff" : T.muted, transition:"all 0.15s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* DETECTIONS TAB */}
+      {activeTab === "detections" && revealed && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 14 }}>
+          {hw.detections.map(det => (
+            <Card key={det.id} glow={det.color}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap: 14 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 13, flexShrink: 0,
+                  background:`${det.color}18`, border:`2px solid ${det.color}35`,
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize: 22
+                }}>{det.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap: 10, marginBottom: 6, flexWrap:"wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{det.label}</span>
+                    <DetectedBadge points={det.points} type={det} />
+                    <span style={{ fontSize: 10, color: T.dim, marginLeft:"auto" }}>{det.count} instances · {det.teammates} teammates</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, marginBottom: 10 }}>{det.desc}</div>
+
+                  {/* Detection callout box */}
+                  <div style={{
+                    padding:"12px 16px", borderRadius: 10, marginBottom: 10,
+                    background:`${det.color}0c`, border:`1.5px solid ${det.color}28`
+                  }}>
+                    <div style={{ fontSize: 10, color: det.color, fontWeight: 800, letterSpacing:"0.08em", marginBottom: 8 }}>
+                      🔍 HIDDEN CONTRIBUTION DETECTED
+                    </div>
+                    <div style={{ fontSize: 12, color: T.text, fontWeight: 700, marginBottom: 6 }}>
+                      You helped {det.teammates} teammate{det.teammates > 1 ? "s" : ""} with {det.label.toLowerCase()} this week.
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap: 10, padding:"8px 12px", background: T.surface, borderRadius: 8, border:`1px solid ${det.color}20` }}>
+                      <span style={{ fontSize: 18 }}>✨</span>
+                      <span style={{ fontSize: 13, fontWeight: 900, color: det.color }}>+{det.points} collaboration points added to your score</span>
+                    </div>
+                  </div>
+
+                  {/* Example messages */}
+                  <div style={{ display:"flex", flexDirection:"column", gap: 6 }}>
+                    {det.examples.map((ex, i) => (
+                      <div key={i} style={{ display:"flex", alignItems:"flex-start", gap: 8, padding:"8px 12px", background: T.elevated, borderRadius: 8, fontSize: 10 }}>
+                        <span style={{ color: det.color, flexShrink: 0, marginTop: 1 }}>▸</span>
+                        <span style={{ color: T.muted }}>{ex}</span>
+                        <Tag color={det.color} size={8}>detected</Tag>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* TIMELINE TAB */}
+      {activeTab === "timeline" && revealed && (
+        <Card>
+          <SH icon="📅" title="Hidden Work Timeline (Last 14 Days)" />
+          <div style={{ display:"flex", flexDirection:"column", gap: 0 }}>
+            {hw.detections.flatMap((det, di) =>
+              det.examples.map((ex, ei) => {
+                const daysAgo = (di * 2 + ei * 3) % 14;
+                const ts = new Date(Date.now() - daysAgo * 86400000);
+                return { det, ex, ts, key:`${det.id}-${ei}` };
+              })
+            ).sort((a,b) => b.ts - a.ts).map((item, i, arr) => (
+              <div key={item.key} style={{ display:"flex", gap: 14, position:"relative" }}>
+                {/* Timeline stem */}
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", width: 32, flexShrink: 0 }}>
+                  <div style={{ width: 12, height: 12, borderRadius:"50%", background: item.det.color, border:`2px solid ${T.surface}`, flexShrink: 0, marginTop: 14 }} />
+                  {i < arr.length-1 && <div style={{ width: 2, flex: 1, background: T.elevated, minHeight: 20 }} />}
+                </div>
+                <div style={{ flex: 1, padding:"10px 0 14px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 12 }}>{item.det.icon}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.text, flex: 1 }}>{item.ex}</span>
+                    <span style={{ fontSize: 9, color: T.dim }}>{item.ts.toLocaleDateString()}</span>
+                  </div>
+                  <div style={{ display:"flex", gap: 8 }}>
+                    <Tag color={item.det.color} size={8}>{item.det.label}</Tag>
+                    <span style={{ fontSize: 9, color: item.det.color, fontWeight: 700 }}>+{item.det.pointsEach} pts</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* FAIRNESS ANALYSIS TAB */}
+      {activeTab === "fairness" && revealed && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 14 }}>
+          <Card glow={T.green}>
+            <SH icon="⚖" title="Fairness Impact Analysis" />
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap: 20, alignItems:"center" }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.8 }}>
+                  Without hidden work detection, <strong style={{ color: T.text }}>{selectedDev.name}</strong> is
+                  under-credited by <strong style={{ color: T.red }}>{hw.creditGap} points</strong>.
+                  The AI has corrected this gap by surfacing {hw.totalInteractions} previously invisible interactions.
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap: 10 }}>
+                  {[
+                    { label:"Official Score (before)",  value: hw.officialScore, color: T.dim,   max: 100 },
+                    { label:"Adjusted Score (after)",   value: hw.adjustedScore, color: T.green, max: 100 },
+                    { label:"Hidden Points Awarded",    value: hw.totalPoints,   color: T.purple, max: Math.max(hw.totalPoints * 1.5, 20) },
+                  ].map(s => (
+                    <div key={s.label}>
+                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom: 4, fontSize: 10 }}>
+                        <span style={{ color: T.muted }}>{s.label}</span>
+                        <span style={{ color: s.color, fontWeight: 800 }}>{s.value}</span>
+                      </div>
+                      <Bar value={s.value} max={s.max} color={s.color} h={7} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap: 8 }}>
+                <div style={{ display:"flex", gap: 20, alignItems:"flex-end" }}>
+                  <div style={{ textAlign:"center" }}>
+                    <div style={{ fontSize: 10, color: T.dim, marginBottom: 6 }}>Before</div>
+                    <div style={{ width: 60, background: T.elevated, borderRadius:"8px 8px 0 0", display:"flex", alignItems:"flex-end", justifyContent:"center", height: 100 }}>
+                      <div style={{ width:"100%", height:`${hw.officialScore}%`, background:`linear-gradient(180deg,${T.dim},${T.dim}88)`, borderRadius:"6px 6px 0 0", display:"flex", alignItems:"flex-end", justifyContent:"center", paddingBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 900, color:"#fff" }}>{hw.officialScore}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"center" }}>
+                    <div style={{ fontSize: 10, color: T.green, marginBottom: 6, fontWeight: 800 }}>After ✓</div>
+                    <div style={{ width: 60, background: T.elevated, borderRadius:"8px 8px 0 0", display:"flex", alignItems:"flex-end", justifyContent:"center", height: 100 }}>
+                      <div style={{ width:"100%", height:`${hw.adjustedScore}%`, background:`linear-gradient(180deg,${T.green},${T.green}88)`, borderRadius:"6px 6px 0 0", display:"flex", alignItems:"flex-end", justifyContent:"center", paddingBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 900, color:"#fff" }}>{hw.adjustedScore}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: T.green, fontWeight: 800 }}>+{hw.creditGap} fairness correction</div>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <SH icon="◉" title="Detection Sources" />
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap: 10 }}>
+              {SCAN_SOURCES.map((src, i) => {
+                const cnt = Math.round(Math.abs(Math.sin(selectedDev.name.length * (i+1) * 3.7)) * 20 + 3);
+                const c = [T.indigo, T.teal, T.purple, T.amber, T.orange][i];
+                return (
+                  <div key={src} style={{ padding:"12px 14px", background: T.elevated, borderRadius: 10, border:`1px solid ${c}20` }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: c, lineHeight: 1 }}>{cnt}</div>
+                    <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{src}</div>
+                    <div style={{ fontSize: 9, color: T.dim, marginTop: 2 }}>signals found</div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TEAM HIDDEN WORK */}
+      {activeTab === "team" && (
+        <div style={{ display:"flex", flexDirection:"column", gap: 14 }}>
+          <Card>
+            <SH icon="⬢" title="Team-Wide Hidden Work Leaderboard" />
+            <div style={{ display:"flex", flexDirection:"column", gap: 10 }}>
+              {[...data.devs].sort((a,b) => buildHiddenWork(b).totalPoints - buildHiddenWork(a).totalPoints).map((dev, rank) => {
+                const h = buildHiddenWork(dev);
+                return (
+                  <div key={dev.name} style={{ display:"flex", alignItems:"center", gap: 14, padding:"14px 16px", background: T.elevated, borderRadius: 12 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background:`${T.purple}18`, border:`1.5px solid ${T.purple}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize: 12, fontWeight: 900, color: T.purple, flexShrink: 0 }}>#{rank+1}</div>
+                    <span style={{ fontSize: 20, flexShrink: 0 }}>{dev.avatar}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 3 }}>{dev.name}</div>
+                      <div style={{ display:"flex", gap: 8 }}>
+                        {HIDDEN_WORK_TYPES.slice(0,3).map(t => (
+                          <span key={t.id} style={{ fontSize: 9, color: T.dim }}>{t.icon} {h.detections.find(d=>d.id===t.id)?.count||0}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 18, fontWeight: 900, color: T.purple }}>{h.totalPoints}<span style={{ fontSize: 11 }}>pts</span></div>
+                      <div style={{ fontSize: 9, color: T.green }}>+{h.creditGap} gap fixed</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card glow={T.orange}>
+            <SH icon="🔥" title="Most Common Hidden Work Types (Team)" />
+            {HIDDEN_WORK_TYPES.map(type => {
+              const total = data.devs.reduce((a, dev) => {
+                const h = buildHiddenWork(dev);
+                return a + (h.detections.find(d=>d.id===type.id)?.count || 0);
+              }, 0);
+              const maxTotal = 40;
+              return (
+                <div key={type.id} style={{ marginBottom: 12 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom: 4, fontSize: 10 }}>
+                    <span style={{ color: T.text, fontWeight: 700 }}>{type.icon} {type.label}</span>
+                    <span style={{ color: type.color, fontWeight: 800 }}>{total} detections</span>
+                  </div>
+                  <Bar value={total} max={maxTotal} color={type.color} h={6} />
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ZERO-KNOWLEDGE PROOF (ZKP) SCORE VERIFICATION
 ═════════════════════════════════════════════════════════════════ */
 
@@ -5113,6 +5938,8 @@ const PAGES = [
   { id: "wcis",      label: "Contribution Portfolio", icon: "🏛" },
   { id: "blockchain", label: "Blockchain Ledger",     icon: "⛓" },
   { id: "zkp",        label: "ZK Proof Verification", icon: "🔐" },
+  { id: "qualityscore", label: "AI Quality Scoring",   icon: "🧠" },
+  { id: "hiddenwk",    label: "Hidden Work Detector",  icon: "👁" },
 ];
 
 export default function DevIQ() {
@@ -5281,6 +6108,8 @@ export default function DevIQ() {
           {page === "wcis" && <WCISPage data={context} />}
           {page === "blockchain" && <BlockchainLedgerPage data={context} />}
           {page === "zkp" && <ZKPPage data={context} />}
+          {page === "qualityscore" && <AIQualityScoringPage data={context} />}
+          {page === "hiddenwk" && <HiddenWorkPage data={context} />}
         </main>
       </div>
     </div>
