@@ -6790,8 +6790,221 @@ const PAGES = [
   { id: "jira",        label: "Jira Agent",             icon: "🤖" },
 ];
 
+/* ─────────────────────────────────────────────────────────────────
+   SIGN IN PAGE (WOW EDITION)
+═════════════════════════════════════════════════════════════════ */
+function FloatingParticle({ delay = 0, size = 10, left = "50%", top = "50%" }) {
+  return (
+    <div style={{
+      position: "absolute", left, top, width: size, height: size,
+      background: `linear-gradient(135deg, ${T.indigo}44, ${T.teal}44)`,
+      borderRadius: "50%", filter: "blur(4px)",
+      animation: `float ${10 + Math.random() * 10}s infinite ease-in-out`,
+      animationDelay: `${delay}s`, pointerEvents: "none", zIndex: 0
+    }} />
+  );
+}
+
+function SignInPage({ onSignIn }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSignIn = (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setTimeout(() => {
+      if (email === "hirthikbalaji2006@gmail.com" && password === "123456") {
+        onSignIn();
+      } else {
+        setError("Invalid credentials. Please check your access key.");
+        setIsSubmitting(false);
+      }
+    }, 800);
+  };
+
+  return (
+    <div style={{
+      height: "100vh", width: "100vw", display: "flex", alignItems: "center", justifyContent: "center",
+      background: `radial-gradient(circle at 50% 50%, #f8fafc 0%, ${T.bg} 100%)`,
+      fontFamily: "inherit", overflow: "hidden", position: "relative"
+    }}>
+      {/* Dynamic Background Elements */}
+      <div style={{
+        position: "absolute", inset: 0, opacity: 0.4,
+        backgroundImage: `linear-gradient(${T.border} 1.5px, transparent 1.5px), linear-gradient(90deg, ${T.border} 1.5px, transparent 1.5px)`,
+        backgroundSize: "60px 60px", transform: "perspective(1000px) rotateX(60deg) translateY(-100px)",
+        transformOrigin: "top", animation: "grid-scroll 20s linear infinite"
+      }} />
+
+      {/* Floating Blobs for Depth */}
+      <div style={{ position: "absolute", top: "10%", left: "15%", width: 400, height: 400, background: `${T.indigo}11`, filter: "blur(100px)", borderRadius: "50%", animation: "pulse 15s infinite alternate" }} />
+      <div style={{ position: "absolute", bottom: "10%", right: "15%", width: 500, height: 500, background: `${T.teal}08`, filter: "blur(120px)", borderRadius: "50%", animation: "pulse 12s infinite alternate-reverse" }} />
+
+      {/* Scattered Particles */}
+      <FloatingParticle left="10%" top="20%" size={120} delay={0} />
+      <FloatingParticle left="80%" top="15%" size={80} delay={2} />
+      <FloatingParticle left="75%" top="70%" size={150} delay={5} />
+      <FloatingParticle left="20%" top="80%" size={100} delay={3} />
+
+      <Card style={{
+        width: 420, padding: "48px 40px", position: "relative", zIndex: 10,
+        background: "rgba(255, 255, 255, 0.7)", backdropFilter: "blur(20px)",
+        border: `1.5px solid rgba(255, 255, 255, 0.4)`,
+        boxShadow: "0 20px 50px rgba(0,0,0,0.05), inset 0 0 0 1px rgba(255,255,255,0.5)",
+        borderRadius: 24, transform: "translateY(0)", animation: "fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1)"
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ position: "relative", width: 64, height: 64, margin: "0 auto 20px" }}>
+            <div style={{
+              position: "absolute", inset: -8, borderRadius: 18,
+              background: `linear-gradient(135deg, ${T.indigo}, ${T.purple})`,
+              opacity: 0.3, filter: "blur(12px)", animation: "pulse 3s infinite"
+            }} />
+            <div style={{
+              position: "relative", width: "100%", height: "100%", borderRadius: 16,
+              background: `linear-gradient(135deg, ${T.indigo}, #7c3aed)`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 32, fontWeight: 950, color: "#fff",
+              boxShadow: `0 8px 24px ${T.indigo}55`
+            }}>D</div>
+          </div>
+          <h2 style={{ fontSize: 28, fontWeight: 900, color: T.text, margin: 0, letterSpacing: "-0.04em" }}>DevIQ Intelligence</h2>
+          <p style={{ fontSize: 14, color: T.muted, marginTop: 10, fontWeight: 500 }}>Unlock the DNA of your engineering team</p>
+        </div>
+
+        <form onSubmit={handleSignIn} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ fontSize: 11, fontWeight: 800, color: T.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>Neural ID / Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="hirthikbalaji2006@gmail.com"
+              style={{
+                padding: "14px 18px", borderRadius: 12, border: `1.5px solid ${T.border}`,
+                background: "rgba(255,255,255,0.5)", color: T.text, fontSize: 15, outline: "none",
+                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)", boxSizing: "border-box",
+                fontWeight: 500
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = T.indigo;
+                e.target.style.background = "#fff";
+                e.target.style.boxShadow = `0 0 0 4px ${T.indigo}11`;
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = T.border;
+                e.target.style.background = "rgba(255,255,255,0.5)";
+                e.target.style.boxShadow = "none";
+              }}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ fontSize: 11, fontWeight: 800, color: T.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>Access Key</label>
+              <span style={{ fontSize: 11, color: T.indigoLt, fontWeight: 700, cursor: "pointer" }}>Recover Key?</span>
+            </div>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              style={{
+                padding: "14px 18px", borderRadius: 12, border: `1.5px solid ${T.border}`,
+                background: "rgba(255,255,255,0.5)", color: T.text, fontSize: 15, outline: "none",
+                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)", boxSizing: "border-box"
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = T.indigo;
+                e.target.style.background = "#fff";
+                e.target.style.boxShadow = `0 0 0 4px ${T.indigo}11`;
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = T.border;
+                e.target.style.background = "rgba(255,255,255,0.5)";
+                e.target.style.boxShadow = "none";
+              }}
+            />
+          </div>
+
+          {error && (
+            <div style={{
+              color: T.red, fontSize: 13, fontWeight: 600, padding: "10px 14px",
+              background: `${T.red}0f`, borderRadius: 10, border: `1px solid ${T.red}22`,
+              animation: "shake 0.4s cubic-bezier(.36,.07,.19,.97) both"
+            }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            style={{
+              padding: "16px", borderRadius: 14,
+              background: isSubmitting ? T.dim : `linear-gradient(135deg, ${T.indigo}, ${T.indigoLt})`,
+              color: "#fff", border: "none", fontSize: 16, fontWeight: 800, cursor: isSubmitting ? "default" : "pointer",
+              marginTop: 10, boxShadow: `0 8px 24px ${T.indigo}44`,
+              transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+              position: "relative", overflow: "hidden"
+            }}
+            onMouseEnter={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(-2px)"; }}
+            onMouseLeave={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(0)"; }}
+            onMouseDown={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(1px) scale(0.98)"; }}
+            onMouseUp={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(-2px) scale(1)"; }}
+          >
+            {isSubmitting ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                <Pulse color="#fff" />
+                <span>Authenticating...</span>
+              </div>
+            ) : "Initialize System →"}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${T.border}`, textAlign: "center" }}>
+          <p style={{ fontSize: 12, color: T.dim, fontWeight: 600 }}>
+            Restricted Access · DevIQ Protocol v2.6.2
+          </p>
+        </div>
+      </Card>
+
+      <style>{`
+        @keyframes grid-scroll {
+          0% { background-position: 0 0; }
+          100% { background-position: 0 60px; }
+        }
+        @keyframes float {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(30px, -50px) scale(1.1); }
+          66% { transform: translate(-20px, 40px) scale(0.9); }
+        }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); opacity: 0.3; }
+          50% { transform: scale(1.1); opacity: 0.5; }
+        }
+        @keyframes fade-up {
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes shake {
+          10%, 90% { transform: translate3d(-1px, 0, 0); }
+          20%, 80% { transform: translate3d(2px, 0, 0); }
+          30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+          40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function DevIQ() {
   const { devs, fileData, deps, tickets, loading } = useDevIQData();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [page, setPage] = useState("overview");
   const [selDev, setSelDev] = useState(null);
   const [ready, setReady] = useState(false);
@@ -6801,6 +7014,8 @@ export default function DevIQ() {
   const timeStr = time.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   if (loading) return <div style={{ background: T.bg, color: T.text, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading dynamic intelligence...</div>;
+
+  if (!isAuthenticated) return <SignInPage onSignIn={() => setIsAuthenticated(true)} />;
 
   const TOTAL_COMMITS = devs.reduce((a, d) => a + d.commits, 0);
   const TOTAL_LINES = devs.reduce((a, d) => a + d.additions, 0);
