@@ -60,6 +60,11 @@ GITHUB_SLEEP        = 0.25   # seconds between GH requests
 GITHUB_CACHE_FILE   = os.environ.get("GITHUB_CACHE_FILE", ".github_cache.json")
 GITHUB_CACHE_TTL    = int(os.environ.get("GITHUB_CACHE_TTL_HOURS", "6")) * 3600  # seconds
 JIRA_CACHE_TTL      = int(os.environ.get("JIRA_CACHE_TTL_SECONDS", "300"))
+
+SLACK_BOT_TOKEN     = os.environ.get("SLACK_BOT_TOKEN", "")          # xoxb-…
+SLACK_CHANNEL_IDS   = os.environ.get("SLACK_CHANNEL_IDS", "C0ALWEDLYUQ")        # comma-separated channel IDs
+SLACK_CACHE_TTL     = int(os.environ.get("SLACK_CACHE_TTL_SECONDS", "120"))  # default: 2 min
+SLACK_MSG_LIMIT     = int(os.environ.get("SLACK_MSG_LIMIT", "200"))   # messages per channel
 # ───────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI()
@@ -75,6 +80,7 @@ app.add_middleware(
 reasoning_cache: dict = {}
 dna_cache: dict = {}
 _jira_cache: dict = {"data": None, "ts": 0.0}
+_slack_cache: dict = {"data": None, "ts": 0.0}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -231,6 +237,240 @@ def get_jira_data() -> tuple[list[dict], list[dict]]:
     _jira_cache["data"] = (issues, comments)
     _jira_cache["ts"]   = now
     return issues, comments
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SLACK API HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SLACK_HEADERS: dict = {}
+if SLACK_BOT_TOKEN:
+    _SLACK_HEADERS = {
+        "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+SLACK_SENTIMENT_KEYWORDS = {
+    "positive": ["thanks", "great", "awesome", "nice work", "well done", "lgtm", "approved",
+                 "good job", "brilliant", "excellent", "perfect", "love it", "ship it"],
+    "negative": ["blocker", "broken", "bug", "failed", "urgent", "critical", "down",
+                 "error", "crash", "outage", "regression", "revert"],
+    "neutral":  [],
+}
+
+
+def _slack_get(path: str, params: dict | None = None) -> dict:
+    url = f"https://slack.com/api/{path}"
+    resp = requests.get(url, headers=_SLACK_HEADERS, params=params, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Slack API error on {path}: {data.get('error', 'unknown')}")
+    return data
+
+
+def _slack_sentiment(text: str) -> str:
+    tl = text.lower()
+    pos = sum(1 for w in SLACK_SENTIMENT_KEYWORDS["positive"] if w in tl)
+    neg = sum(1 for w in SLACK_SENTIMENT_KEYWORDS["negative"] if w in tl)
+    if pos > neg:
+        return "positive"
+    if neg > pos:
+        return "negative"
+    return "neutral"
+
+
+def fetch_slack_channels() -> list[dict]:
+    """Return list of channels the bot has access to."""
+    channels: list[dict] = []
+    cursor = None
+    while True:
+        params: dict = {"limit": 200, "exclude_archived": "true", "types": "public_channel,private_channel"}
+        if cursor:
+            params["cursor"] = cursor
+        data = _slack_get("conversations.list", params)
+        channels.extend(data.get("channels", []))
+        cursor = data.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            break
+    return channels
+
+
+def fetch_slack_messages(channel_id: str, limit: int = 200) -> list[dict]:
+    """Fetch recent messages from a Slack channel."""
+    params: dict = {"channel": channel_id, "limit": min(limit, 1000)}
+    data = _slack_get("conversations.history", params)
+    return data.get("messages", [])
+
+
+def fetch_slack_users() -> dict[str, str]:
+    """Return {user_id: display_name} mapping."""
+    user_map: dict[str, str] = {}
+    cursor = None
+    while True:
+        params: dict = {"limit": 200}
+        if cursor:
+            params["cursor"] = cursor
+        data = _slack_get("users.list", params)
+        for member in data.get("members", []):
+            uid = member.get("id", "")
+            profile = member.get("profile", {})
+            name = (profile.get("display_name") or profile.get("real_name") or member.get("name") or uid)
+            user_map[uid] = name
+        cursor = data.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            break
+    return user_map
+
+
+def _compute_slack_stats(messages: list[dict], user_map: dict[str, str]) -> dict:
+    """
+    Aggregate message-level data into per-developer Slack metrics:
+      message_count, avg_sentiment, reaction_count, thread_replies, mention_count
+    """
+    dev_stats: dict[str, dict] = {}
+    total_msgs = 0
+    sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0}
+
+    for msg in messages:
+        if msg.get("subtype"):          # skip joins/leaves/bot posts
+            continue
+        uid = msg.get("user", "")
+        if not uid:
+            continue
+        name = normalize_name(user_map.get(uid, uid))
+        text = msg.get("text", "")
+        sentiment = _slack_sentiment(text)
+        reactions = sum(r.get("count", 0) for r in msg.get("reactions", []))
+        replies   = int(msg.get("reply_count", 0))
+        mentions  = text.count("<@")
+
+        if name not in dev_stats:
+            dev_stats[name] = {
+                "name": name, "message_count": 0,
+                "positive": 0, "negative": 0, "neutral": 0,
+                "reaction_count": 0, "thread_replies": 0, "mention_count": 0,
+            }
+        s = dev_stats[name]
+        s["message_count"]  += 1
+        s[sentiment]        += 1
+        s["reaction_count"] += reactions
+        s["thread_replies"] += replies
+        s["mention_count"]  += mentions
+        total_msgs          += 1
+        sentiment_counts[sentiment] += 1
+
+    # Post-process: compute avg sentiment label + score
+    for s in dev_stats.values():
+        total = max(s["message_count"], 1)
+        pos_ratio = s["positive"] / total
+        neg_ratio = s["negative"] / total
+        if pos_ratio > 0.4:
+            s["avg_sentiment"] = "positive"
+        elif neg_ratio > 0.3:
+            s["avg_sentiment"] = "negative"
+        else:
+            s["avg_sentiment"] = "neutral"
+        # Collaboration score: weighted mix of reactions + replies (out of 100)
+        s["collab_score"] = min(100, round(
+            (s["reaction_count"] / max(total_msgs, 1)) * 3000 +
+            (s["thread_replies"] / max(total_msgs, 1)) * 2000 +
+            (pos_ratio * 40)
+        ))
+
+    return {
+        "dev_stats":        list(dev_stats.values()),
+        "total_messages":   total_msgs,
+        "sentiment_summary": sentiment_counts,
+    }
+
+
+def get_slack_data() -> dict:
+    """
+    Return aggregated Slack metrics with caching.
+    Returns:
+      {
+        "channels": [...],       # list of {id, name, message_count, ...}
+        "dev_stats": [...],      # per-developer stats
+        "total_messages": int,
+        "sentiment_summary": {...},
+        "recent_messages": [...] # last 20 messages across all channels (for the feed)
+      }
+    """
+    now = time.time()
+    if _slack_cache["data"] and (now - _slack_cache["ts"]) < SLACK_CACHE_TTL:
+        log.info("Using cached Slack data (age: %.0fs)", now - _slack_cache["ts"])
+        return _slack_cache["data"]
+
+    if not SLACK_BOT_TOKEN:
+        log.warning("SLACK_BOT_TOKEN not set, skipping Slack fetch")
+        return {"channels": [], "dev_stats": [], "total_messages": 0,
+                "sentiment_summary": {"positive": 0, "negative": 0, "neutral": 0},
+                "recent_messages": []}
+
+    try:
+        user_map   = fetch_slack_users()
+        channel_ids = [c.strip() for c in SLACK_CHANNEL_IDS.split(",") if c.strip()] if SLACK_CHANNEL_IDS else []
+
+        # If no explicit channels, discover them
+        if not channel_ids:
+            all_channels = fetch_slack_channels()
+            channel_ids  = [c["id"] for c in all_channels[:10]]  # cap at 10 channels
+
+        all_messages:  list[dict] = []
+        channel_stats: list[dict] = []
+
+        for ch_id in channel_ids:
+            try:
+                ch_info = _slack_get("conversations.info", {"channel": ch_id}).get("channel", {})
+                msgs    = fetch_slack_messages(ch_id, limit=SLACK_MSG_LIMIT)
+                real_msgs = [m for m in msgs if not m.get("subtype") and m.get("user")]
+                channel_stats.append({
+                    "id":            ch_id,
+                    "name":          ch_info.get("name", ch_id),
+                    "message_count": len(real_msgs),
+                    "topic":         (ch_info.get("topic") or {}).get("value", ""),
+                })
+                for m in msgs:
+                    m["_channel_id"]   = ch_id
+                    m["_channel_name"] = ch_info.get("name", ch_id)
+                all_messages.extend(msgs)
+            except Exception as e:
+                log.warning("Could not fetch Slack channel %s: %s", ch_id, e)
+
+        aggregated = _compute_slack_stats(all_messages, user_map)
+
+        # Build recent messages feed (last 20 non-bot messages, sorted by ts)
+        recent = sorted(
+            [m for m in all_messages if not m.get("subtype") and m.get("user")],
+            key=lambda m: float(m.get("ts", 0)), reverse=True
+        )[:20]
+        recent_feed = [{
+            "ts":       m.get("ts", ""),
+            "channel":  m.get("_channel_name", ""),
+            "user":     normalize_name(user_map.get(m.get("user", ""), m.get("user", "unknown"))),
+            "text":     m.get("text", "")[:200],
+            "sentiment": _slack_sentiment(m.get("text", "")),
+            "reactions": sum(r.get("count", 0) for r in m.get("reactions", [])),
+        } for m in recent]
+
+        result = {
+            "channels":         channel_stats,
+            "dev_stats":        aggregated["dev_stats"],
+            "total_messages":   aggregated["total_messages"],
+            "sentiment_summary": aggregated["sentiment_summary"],
+            "recent_messages":  recent_feed,
+        }
+        _slack_cache["data"] = result
+        _slack_cache["ts"]   = now
+        log.info("Slack data fetched: %d messages across %d channels", aggregated["total_messages"], len(channel_stats))
+        return result
+
+    except Exception as e:
+        log.error("Slack fetch error: %s", e, exc_info=True)
+        return {"channels": [], "dev_stats": [], "total_messages": 0,
+                "sentiment_summary": {"positive": 0, "negative": 0, "neutral": 0},
+                "recent_messages": [], "error": str(e)}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -840,12 +1080,27 @@ async def get_dna(dev_name: str):
         return {"error": f"Math-based DNA analysis failed: {str(e)}"}
 
 
+@app.get("/api/slack")
+async def get_slack():
+    """Return cached Slack metrics (channels, per-dev stats, recent messages)."""
+    return get_slack_data()
+
+
+@app.post("/api/refresh/slack")
+async def refresh_slack():
+    """Invalidate the in-memory Slack cache."""
+    _slack_cache["data"] = None
+    _slack_cache["ts"]   = 0.0
+    return {"status": "cache_cleared", "message": "Slack cache invalidated. Next request will re-fetch."}
+
+
 @app.get("/api/cache/status")
 async def cache_status():
     """Show current cache ages so you know when data was last fetched."""
     _, gh_fetched_at = _load_github_cache()
     gh_age  = time.time() - gh_fetched_at if gh_fetched_at else None
     jira_age = time.time() - _jira_cache["ts"] if _jira_cache["ts"] else None
+    slack_age = time.time() - _slack_cache["ts"] if _slack_cache["ts"] else None
     return {
         "github": {
             "cache_file":   GITHUB_CACHE_FILE,
@@ -857,6 +1112,11 @@ async def cache_status():
             "ttl_seconds":  JIRA_CACHE_TTL,
             "age_seconds":  round(jira_age) if jira_age is not None else None,
             "is_fresh":     jira_age is not None and jira_age < JIRA_CACHE_TTL,
+        },
+        "slack": {
+            "ttl_seconds":  SLACK_CACHE_TTL,
+            "age_seconds":  round(slack_age) if slack_age is not None else None,
+            "is_fresh":     slack_age is not None and slack_age < SLACK_CACHE_TTL,
         },
     }
 
@@ -870,6 +1130,8 @@ async def events(request: Request):
                 break
             data = calculate_metrics()
             if data:
+                # Attach live Slack data to the SSE payload
+                data["slack"] = get_slack_data()
                 yield f"data: {json.dumps(data)}\n\n"
             await asyncio.sleep(JIRA_CACHE_TTL)
 

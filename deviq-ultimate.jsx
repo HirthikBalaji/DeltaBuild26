@@ -69,7 +69,7 @@ function calcDNA(dev) {
    DYNAMIC DATA HOOK
 ───────────────────────────────────────────────────────────────── */
 function useDevIQData() {
-  const [data, setData] = useState({ devs: [], fileData: [], deps: [], tickets: [], loading: true });
+  const [data, setData] = useState({ devs: [], fileData: [], deps: [], tickets: [], slack: null, loading: true });
 
   useEffect(() => {
     const ev = new EventSource("http://localhost:3001/api/events");
@@ -6766,6 +6766,263 @@ Answer the question based on the data above. Be concise, use plain text. No JSON
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   SLACK INTELLIGENCE PAGE
+═════════════════════════════════════════════════════════════════ */
+const SENTIMENT_COLOR = { positive: "#059669", negative: "#dc2626", neutral: "#64748b" };
+const SENTIMENT_ICON  = { positive: "↑", negative: "↓", neutral: "→" };
+
+function SlackPage({ data }) {
+  const slack = data.slack;
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState("all");
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try { await fetch("http://localhost:3001/api/refresh/slack", { method: "POST" }); }
+    catch (e) { console.error(e); }
+    setTimeout(() => setRefreshing(false), 1500);
+  };
+
+  if (!slack) {
+    return (
+      <Card style={{ textAlign: "center", padding: 60 }}>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>💬</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 8 }}>Slack Not Connected</div>
+        <div style={{ fontSize: 13, color: T.muted, maxWidth: 420, margin: "0 auto", lineHeight: 1.7 }}>
+          Set <code style={{ background: T.elevated, padding: "2px 6px", borderRadius: 4 }}>SLACK_BOT_TOKEN</code> and optionally{" "}
+          <code style={{ background: T.elevated, padding: "2px 6px", borderRadius: 4 }}>SLACK_CHANNEL_IDS</code> in your .env file,
+          then restart the backend.
+        </div>
+      </Card>
+    );
+  }
+
+  const { channels = [], dev_stats = [], total_messages = 0, sentiment_summary = {}, recent_messages = [], error } = slack;
+  const totalPos = sentiment_summary.positive || 0;
+  const totalNeg = sentiment_summary.negative || 0;
+  const totalNeu = sentiment_summary.neutral  || 0;
+  const healthPct = total_messages > 0 ? Math.round((totalPos / total_messages) * 100) : 0;
+
+  const filteredDevs = filter === "all" ? dev_stats
+    : dev_stats.filter(d => d.avg_sentiment === filter);
+
+  const topTalkers = [...dev_stats].sort((a, b) => b.message_count - a.message_count).slice(0, 5);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>💬 Slack Intelligence</div>
+          <div style={{ fontSize: 13, color: T.dim, marginTop: 3 }}>
+            {channels.length} channel{channels.length !== 1 ? "s" : ""} · {total_messages.toLocaleString()} messages analysed
+          </div>
+        </div>
+        <button onClick={handleRefresh} disabled={refreshing} style={{
+          marginLeft: "auto", fontSize: 12, color: refreshing ? T.dim : T.indigoLt,
+          background: "rgba(99,102,241,0.1)", border: `1.5px solid ${T.borderHi}`,
+          borderRadius: 8, padding: "8px 18px", cursor: "pointer", fontFamily: "inherit", fontWeight: 700
+        }}>
+          {refreshing ? "⟳ Refreshing…" : "⟳ Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ background: "rgba(220,38,38,0.08)", border: `1.5px solid ${T.red}33`, borderRadius: 12, padding: "14px 20px", color: T.red, fontSize: 13 }}>
+          ⚠ Slack error: {error}
+        </div>
+      )}
+
+      {/* KPI Row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+        {[
+          { label: "Total Messages", value: total_messages, color: T.indigo, icon: "💬" },
+          { label: "Positive Signals", value: totalPos, color: T.green, icon: "↑" },
+          { label: "Negative Signals", value: totalNeg, color: T.red, icon: "↓" },
+          { label: "Team Health Score", value: `${healthPct}%`, color: healthPct >= 50 ? T.green : T.orange, icon: "♥" },
+        ].map(k => (
+          <Card key={k.label} glow={k.color} style={{ textAlign: "center", padding: "20px 16px" }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>{k.icon}</div>
+            <div style={{ fontSize: 26, fontWeight: 900, color: k.color }}>{typeof k.value === "number" ? k.value.toLocaleString() : k.value}</div>
+            <div style={{ fontSize: 11, color: T.dim, marginTop: 4, letterSpacing: "0.08em", fontWeight: 700 }}>{k.label.toUpperCase()}</div>
+          </Card>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        {/* Sentiment Breakdown */}
+        <Card>
+          <SH icon="◈" title="Sentiment Breakdown" />
+          <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+            {["positive", "negative", "neutral"].map(s => {
+              const count = sentiment_summary[s] || 0;
+              const pct   = total_messages > 0 ? Math.round((count / total_messages) * 100) : 0;
+              return (
+                <div key={s} style={{ flex: 1, textAlign: "center", padding: "14px 10px", borderRadius: 12,
+                  background: `${SENTIMENT_COLOR[s]}12`, border: `1.5px solid ${SENTIMENT_COLOR[s]}30` }}>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{SENTIMENT_ICON[s]}</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: SENTIMENT_COLOR[s] }}>{pct}%</div>
+                  <div style={{ fontSize: 10, color: T.dim, fontWeight: 700, textTransform: "uppercase", marginTop: 2 }}>{s}</div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{count.toLocaleString()} msgs</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+            Sentiment is derived from keyword analysis across all message content in tracked channels.
+          </div>
+        </Card>
+
+        {/* Top Talkers */}
+        <Card>
+          <SH icon="▲" title="Top Communicators" />
+          {topTalkers.length === 0 ? (
+            <div style={{ color: T.dim, fontSize: 13, textAlign: "center", paddingTop: 20 }}>No data yet</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {topTalkers.map((d, i) => (
+                <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                    background: `linear-gradient(135deg,${T.indigo},${T.teal})`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 11, fontWeight: 900, color: "#fff"
+                  }}>{d.name.slice(0,2).toUpperCase()}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{d.name}</div>
+                    <Bar value={d.message_count} max={Math.max(...topTalkers.map(x => x.message_count), 1)} color={T.indigo} h={4} />
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: T.indigo }}>{d.message_count}</div>
+                    <div style={{ fontSize: 10, color: SENTIMENT_COLOR[d.avg_sentiment] || T.dim, fontWeight: 700 }}>
+                      {SENTIMENT_ICON[d.avg_sentiment]} {d.avg_sentiment}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Channels */}
+      {channels.length > 0 && (
+        <Card>
+          <SH icon="⬢" title="Channel Activity" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
+            {channels.map(ch => (
+              <div key={ch.id} style={{
+                padding: "14px 18px", borderRadius: 12,
+                background: T.elevated, border: `1px solid ${T.border}`
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>#{ch.name}</div>
+                {ch.topic && <div style={{ fontSize: 11, color: T.dim, marginBottom: 8, lineClamp: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{ch.topic}</div>}
+                <div style={{ fontSize: 22, fontWeight: 900, color: T.indigoLt }}>{ch.message_count}</div>
+                <div style={{ fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.08em" }}>MESSAGES</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Per-Dev Stats */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          <span style={{ fontSize: 16, color: T.indigo }}>✦</span>
+          <span style={{ fontSize: 13, color: T.muted, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>Developer Slack Metrics</span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {["all","positive","negative","neutral"].map(f => (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                fontSize: 11, padding: "5px 12px", borderRadius: 8,
+                background: filter === f ? `${SENTIMENT_COLOR[f] || T.indigo}20` : "transparent",
+                color: filter === f ? (SENTIMENT_COLOR[f] || T.indigo) : T.dim,
+                border: `1.5px solid ${filter === f ? (SENTIMENT_COLOR[f] || T.indigo) + "50" : T.border}`,
+                cursor: "pointer", fontFamily: "inherit", fontWeight: 700, textTransform: "capitalize"
+              }}>{f}</button>
+            ))}
+          </div>
+        </div>
+        {filteredDevs.length === 0 ? (
+          <div style={{ textAlign: "center", color: T.dim, padding: 30 }}>No developers matched this filter.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {filteredDevs.map(d => (
+              <div key={d.name} style={{
+                display: "flex", alignItems: "center", gap: 16, padding: "14px 18px",
+                background: T.elevated, borderRadius: 12,
+                border: `1px solid ${SENTIMENT_COLOR[d.avg_sentiment] || T.border}22`
+              }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                  background: `linear-gradient(135deg,${T.indigo},${T.teal})`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 13, fontWeight: 900, color: "#fff"
+                }}>{d.name.slice(0,2).toUpperCase()}</div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 6 }}>{d.name}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <Tag color={SENTIMENT_COLOR[d.avg_sentiment] || T.dim}>{SENTIMENT_ICON[d.avg_sentiment]} {d.avg_sentiment}</Tag>
+                    <Tag color={T.indigo}>{d.message_count} msgs</Tag>
+                    <Tag color={T.teal}>⚡ {d.reaction_count} reactions</Tag>
+                    <Tag color={T.purple}>↩ {d.thread_replies} replies</Tag>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: d.collab_score >= 60 ? T.green : T.amber }}>
+                    {d.collab_score}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "0.08em" }}>COLLAB SCORE</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Recent Message Feed */}
+      <Card>
+        <SH icon="◉" title="Live Message Feed" />
+        {recent_messages.length === 0 ? (
+          <div style={{ textAlign: "center", color: T.dim, padding: 30, fontSize: 13 }}>No recent messages.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {recent_messages.map((msg, i) => {
+              const sColor = SENTIMENT_COLOR[msg.sentiment] || T.dim;
+              return (
+                <div key={`${msg.ts}-${i}`} style={{
+                  display: "flex", gap: 14, padding: "12px 16px", borderRadius: 12,
+                  background: T.elevated, border: `1px solid ${sColor}18`
+                }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                    background: `linear-gradient(135deg,${T.indigo}44,${T.teal}44)`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 12, fontWeight: 800, color: T.indigo }}>{msg.user.slice(0,2).toUpperCase()}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: T.text }}>{msg.user}</span>
+                      <span style={{ fontSize: 11, color: T.dim }}>in #{msg.channel}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 10, color: sColor, fontWeight: 700, border: `1px solid ${sColor}30`, borderRadius: 6, padding: "1px 7px" }}>
+                        {SENTIMENT_ICON[msg.sentiment]} {msg.sentiment}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6, wordBreak: "break-word" }}>{msg.text}</div>
+                    {msg.reactions > 0 && (
+                      <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>⚡ {msg.reactions} reaction{msg.reactions !== 1 ? "s" : ""}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -6788,6 +7045,7 @@ const PAGES = [
   { id: "qualityscore", label: "AI Quality Scoring",   icon: "🧠" },
   { id: "hiddenwk",    label: "Hidden Work Detector",  icon: "👁" },
   { id: "jira",        label: "Jira Agent",             icon: "🤖" },
+  { id: "slack",       label: "Slack Intelligence",     icon: "💬" },
 ];
 
 /* ─────────────────────────────────────────────────────────────────
@@ -7003,7 +7261,7 @@ function SignInPage({ onSignIn }) {
 }
 
 export default function DevIQ() {
-  const { devs, fileData, deps, tickets, loading } = useDevIQData();
+  const { devs, fileData, deps, tickets, slack, loading } = useDevIQData();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [page, setPage] = useState("overview");
   const [selDev, setSelDev] = useState(null);
@@ -7024,7 +7282,7 @@ export default function DevIQ() {
   const AVG_CONTRIB = devs.length > 0 ? Math.round(devs.reduce((a, d) => a + d.contribution, 0) / devs.length) : 0;
   const AVG_BURNOUT = devs.length > 0 ? Math.round(devs.reduce((a, d) => a + d.burnout, 0) / devs.length) : 0;
 
-  const context = { devs, fileData, deps, tickets, TOTAL_COMMITS, TOTAL_LINES, AT_RISK, AVG_CONTRIB, AVG_BURNOUT };
+  const context = { devs, fileData, deps, tickets, slack, TOTAL_COMMITS, TOTAL_LINES, AT_RISK, AVG_CONTRIB, AVG_BURNOUT };
 
   return (
     <div style={{
@@ -7174,6 +7432,7 @@ export default function DevIQ() {
           {page === "qualityscore" && <AIQualityScoringPage data={context} />}
           {page === "hiddenwk" && <HiddenWorkPage data={context} />}
           {page === "jira"     && <JiraAgentPage data={context} />}
+          {page === "slack"    && <SlackPage data={context} />}
         </main>
       </div>
     </div>
