@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 /* ─────────────────────────────────────────────────────────────────
    DESIGN TOKENS (LIGHT THEME)
@@ -1801,6 +1801,1181 @@ function InsightsPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+   PAGE: CODEBASE EVOLUTION SIMULATOR
+   Pure math projections — no Ollama, no external calls.
+═════════════════════════════════════════════════════════════════ */
+function projectComplexity(fileEntry, devs, monthsAhead) {
+  // Complexity growth rate: driven by entropy + burnout of top owner + bus factor risk
+  const ownerBurnout = devs.find(d => d.name === fileEntry.top_owner)?.burnout || 0;
+  const entropyFactor  = fileEntry.entropy / 2.5;           // 0–1
+  const burnoutFactor  = ownerBurnout / 100;                // 0–1
+  const busFactor      = Math.max(0, (5 - fileEntry.bus) / 5); // 0–1, low bus = high risk
+  const growthRatePerMonth = (entropyFactor * 0.12 + burnoutFactor * 0.08 + busFactor * 0.10);
+  return Array.from({ length: monthsAhead + 1 }, (_, m) => ({
+    month: m,
+    complexity: Math.min(Math.round(fileEntry.risk * Math.pow(1 + growthRatePerMonth, m)), 100),
+    contributors: Math.max(fileEntry.bus - Math.floor(m * burnoutFactor * 0.4), 1),
+  }));
+}
+
+function MiniLineChart({ points, color = T.indigo, height = 60, width = 240, danger = 80 }) {
+  const mx = Math.max(...points.map(p => p.y), 100);
+  const W = width, H = height, PAD = 6;
+  const toX = i  => PAD + (i / (points.length - 1)) * (W - PAD * 2);
+  const toY = v  => H - PAD - (v / mx) * (H - PAD * 2);
+  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${toX(i)},${toY(p.y)}`).join(" ");
+  const dangerY = toY(danger);
+  return (
+    <svg width={W} height={H} style={{ width: "100%", height: H }}>
+      <defs>
+        <linearGradient id={`evol-${color.replace("#","")}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* danger zone */}
+      <rect x={PAD} y={dangerY} width={W - PAD * 2} height={H - PAD - dangerY}
+        fill={`${T.red}0a`} />
+      <line x1={PAD} y1={dangerY} x2={W - PAD} y2={dangerY}
+        stroke={T.red} strokeWidth="1" strokeDasharray="4,3" opacity="0.5" />
+      {/* area fill */}
+      <path d={`${path} L${toX(points.length-1)},${H-PAD} L${toX(0)},${H-PAD} Z`}
+        fill={`url(#evol-${color.replace("#","")})`} />
+      {/* line */}
+      <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+      {/* dots */}
+      {points.map((p, i) => (
+        <circle key={i} cx={toX(i)} cy={toY(p.y)} r="3"
+          fill={p.y >= danger ? T.red : color} stroke={T.surface} strokeWidth="1.5" />
+      ))}
+      {/* month labels */}
+      {points.map((p, i) => i % 2 === 0 && (
+        <text key={i} x={toX(i)} y={H - 1} textAnchor="middle"
+          fill={T.dim} fontSize="7" fontFamily="monospace">M{p.x}</text>
+      ))}
+    </svg>
+  );
+}
+
+function EvolutionPage({ data }) {
+  const MONTHS = 6;
+  const [selected, setSelected] = useState(null);
+
+  const projections = data.fileData.map(f => ({
+    ...f,
+    timeline: projectComplexity(f, data.devs, MONTHS),
+  }));
+
+  // Team-level velocity projection
+  const teamVelocity = [58, 58, 58, 59]; // from existing TEAM_SPRINTS
+  const avgSlope = (teamVelocity[teamVelocity.length-1] - teamVelocity[0]) / (teamVelocity.length - 1);
+  const velocityForecast = Array.from({ length: 7 }, (_, i) => ({
+    x: i, y: Math.max(Math.round(teamVelocity[teamVelocity.length-1] + avgSlope * i - (i * i * 0.4)), 30)
+  }));
+
+  // Debt accumulation model: sum of (risk growth per file per month)
+  const debtTimeline = Array.from({ length: MONTHS + 1 }, (_, m) => ({
+    x: m,
+    y: Math.round(projections.reduce((sum, f) => sum + f.timeline[m].complexity, 0) / projections.length)
+  }));
+
+  // Extinction risk: devs likely to become single points of failure
+  const extinctionRisk = data.devs
+    .map(dev => {
+      const ownedFiles = data.fileData.filter(f => f.top_owner === dev.name).length;
+      const riskScore  = Math.round((dev.burnout * 0.5) + (ownedFiles / Math.max(data.fileData.length, 1) * 50));
+      const monthsToRisk = Math.max(Math.round((100 - riskScore) / 8), 1);
+      return { ...dev, ownedFiles, riskScore, monthsToRisk };
+    })
+    .sort((a, b) => b.riskScore - a.riskScore);
+
+  const sel = selected ? projections.find(p => p.file === selected) : null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Header explainer */}
+      <Card glow={T.purple}>
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 22 }}>🧬</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: "0.06em" }}>Codebase Evolution Simulator</span>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.8 }}>
+              Projects future architecture complexity using <strong style={{ color: T.text }}>entropy growth rate</strong>,
+              <strong style={{ color: T.text }}> owner burnout trajectory</strong>, and <strong style={{ color: T.text }}>bus factor decay</strong>.
+              All forecasts are deterministic math models — no AI required. Red zone = critical intervention needed.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>
+            {[
+              { l: "Horizon", v: `${MONTHS}mo`, c: T.purple },
+              { l: "Files Tracked", v: data.fileData.length, c: T.indigo },
+              { l: "Avg Debt Score", v: debtTimeline[MONTHS].y, c: debtTimeline[MONTHS].y >= 70 ? T.red : T.amber },
+            ].map(m => (
+              <div key={m.l} style={{ textAlign: "center", padding: "12px 18px", background: T.elevated, borderRadius: 12, border: `1px solid ${m.c}20` }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: m.c }}>{m.v}</div>
+                <div style={{ fontSize: 9, color: T.muted, marginTop: 3, textTransform: "uppercase", letterSpacing: "0.08em" }}>{m.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* Top row: team velocity + debt accumulation */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        <Card glow={T.indigo}>
+          <SH icon="◉" title="Team Velocity Forecast — 6 Sprints" />
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+            Based on linear regression of Sprint 1–4 actuals. Fatigue drag applied at +0.4 pts/sprint² as burnout compounds.
+          </div>
+          <MiniLineChart points={velocityForecast} color={T.indigo} height={80} danger={40} />
+          <div style={{ display: "flex", gap: 12, marginTop: 14 }}>
+            {velocityForecast.slice(1).map((p, i) => (
+              <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: p.y < 45 ? T.red : p.y < 55 ? T.amber : T.green }}>{p.y}</div>
+                <div style={{ fontSize: 8, color: T.dim }}>S{i + 5}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card glow={T.orange}>
+          <SH icon="⚡" title="Technical Debt Accumulation — 6 Months" />
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+            Composite score: avg complexity across all tracked files. Crosses critical threshold (80) if entropy + burnout trends hold.
+          </div>
+          <MiniLineChart points={debtTimeline} color={T.orange} height={80} danger={80} />
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <div style={{ flex: 1, padding: "10px", background: T.elevated, borderRadius: 8, textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.orange }}>{debtTimeline[0].y}</div>
+              <div style={{ fontSize: 8, color: T.dim }}>Today</div>
+            </div>
+            <div style={{ flex: 1, padding: "10px", background: T.elevated, borderRadius: 8, textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.amber }}>{debtTimeline[3].y}</div>
+              <div style={{ fontSize: 8, color: T.dim }}>Month 3</div>
+            </div>
+            <div style={{ flex: 1, padding: "10px", background: T.elevated, borderRadius: 8, textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: debtTimeline[6].y >= 80 ? T.red : T.amber }}>{debtTimeline[6].y}</div>
+              <div style={{ fontSize: 8, color: T.dim }}>Month 6</div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Per-file complexity projections */}
+      <Card>
+        <SH icon="🧬" title="Per-File Complexity Evolution" />
+        <div style={{ fontSize: 11, color: T.muted, marginBottom: 16 }}>
+          Click any file to see its 6-month complexity trajectory. Red zone = predicted critical risk.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+          {projections.sort((a,b) => b.timeline[MONTHS].complexity - a.timeline[MONTHS].complexity).map(proj => {
+            const now = proj.timeline[0].complexity;
+            const end = proj.timeline[MONTHS].complexity;
+            const pct = Math.round(((end - now) / Math.max(now, 1)) * 100);
+            const isCrit = end >= 80;
+            const isSelected = selected === proj.file;
+            return (
+              <div key={proj.file}
+                onClick={() => setSelected(isSelected ? null : proj.file)}
+                style={{
+                  padding: "14px 16px", background: isSelected ? `${T.purple}0f` : T.elevated,
+                  borderRadius: 12, cursor: "pointer",
+                  border: `1.5px solid ${isSelected ? T.purple : isCrit ? T.red + "44" : T.border}`,
+                  transition: "all 0.2s"
+                }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: "monospace" }}>{proj.file}</div>
+                    <div style={{ fontSize: 9, color: T.muted, marginTop: 3 }}>Owner: {proj.top_owner} · Entropy {proj.entropy.toFixed(2)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <Tag color={isCrit ? T.red : pct > 30 ? T.amber : T.green}>
+                      {pct > 0 ? `+${pct}%` : `${pct}%`} in 6mo
+                    </Tag>
+                  </div>
+                </div>
+                <MiniLineChart
+                  points={proj.timeline.map((t, i) => ({ x: i, y: t.complexity }))}
+                  color={isCrit ? T.red : pct > 30 ? T.amber : T.indigo}
+                  height={56} danger={80}
+                />
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 9, color: T.dim }}>
+                  <span>Now: <strong style={{ color: T.text }}>{now}</strong></span>
+                  <span>M3: <strong style={{ color: T.amber }}>{proj.timeline[3].complexity}</strong></span>
+                  <span>M6: <strong style={{ color: isCrit ? T.red : T.text }}>{end}</strong></span>
+                  <span>Contributors left: <strong style={{ color: proj.timeline[MONTHS].contributors <= 1 ? T.red : T.green }}>{proj.timeline[MONTHS].contributors}</strong></span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Knowledge extinction risk */}
+      <Card glow={T.red}>
+        <SH icon="☠" title="Knowledge Extinction Risk — Single Points of Failure" />
+        <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, lineHeight: 1.6 }}>
+          Score = (burnout × 0.5) + (owned file share × 50). If the developer leaves or burns out fully,
+          their files become unmaintained. Months to critical = estimated time before irreversible knowledge loss.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+          {extinctionRisk.map(dev => (
+            <div key={dev.name} style={{
+              padding: "14px 16px", background: T.elevated, borderRadius: 12,
+              border: `1px solid ${dev.riskScore >= 60 ? T.red + "44" : T.border}`
+            }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                  background: `${rc(dev.risk)}14`, border: `2px solid ${rc(dev.risk)}`,
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800
+                }}>{dev.avatar}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{dev.name}</div>
+                  <div style={{ fontSize: 10, color: T.muted }}>{dev.ownedFiles} primary files · {dev.burnout}% burnout</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: dev.riskScore >= 60 ? T.red : dev.riskScore >= 40 ? T.amber : T.green }}>{dev.riskScore}</div>
+                  <div style={{ fontSize: 8, color: T.dim }}>Risk Score</div>
+                </div>
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 9, color: T.muted }}>Extinction Risk</span>
+                  <span style={{ fontSize: 9, color: dev.riskScore >= 60 ? T.red : T.amber, fontWeight: 700 }}>{dev.riskScore}%</span>
+                </div>
+                <Bar value={dev.riskScore} color={dev.riskScore >= 60 ? T.red : dev.riskScore >= 40 ? T.amber : T.green} h={6} />
+              </div>
+              <div style={{ padding: "8px 10px", background: `${dev.riskScore >= 60 ? T.red : T.amber}0a`, borderRadius: 7, fontSize: 10, color: T.muted }}>
+                ⏱ Critical in <strong style={{ color: dev.riskScore >= 60 ? T.red : T.amber }}>{dev.monthsToRisk} months</strong> if burnout trend continues.
+                {dev.riskScore >= 60 && <span style={{ color: T.red, fontWeight: 700 }}> Immediate knowledge transfer required.</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   PAGE: ENGINEERING BEHAVIOR RESEARCH PLATFORM
+   Statistical distributions, correlation matrices, export tools.
+═════════════════════════════════════════════════════════════════ */
+function pearsonCorr(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return 0;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  const num = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0);
+  const den = Math.sqrt(xs.reduce((s, x) => s + (x - mx) ** 2, 0) * ys.reduce((s, y) => s + (y - my) ** 2, 0));
+  return den === 0 ? 0 : Math.round((num / den) * 100) / 100;
+}
+
+function ResearchPage({ data }) {
+  const devs = data.devs;
+  const [activeTab, setActiveTab] = useState("distributions");
+  const [exportMsg, setExportMsg] = useState("");
+
+  // ── Correlation matrix ──────────────────────────────────────────
+  const METRICS = [
+    { key: "commits",      label: "Commits",      get: d => d.commits },
+    { key: "additions",    label: "Lines Added",   get: d => d.additions },
+    { key: "burnout",      label: "Burnout",       get: d => d.burnout },
+    { key: "flow",         label: "Flow Score",    get: d => d.flow?.score || 0 },
+    { key: "contribution", label: "Contribution",  get: d => d.contribution },
+    { key: "openTasks",    label: "Open Tasks",    get: d => d.open_tasks || 0 },
+    { key: "psych",        label: "Psych Safety",  get: d => d.psych?.score || 0 },
+  ];
+
+  const vectors = METRICS.map(m => devs.map(m.get));
+  const corrMatrix = METRICS.map((_, i) => METRICS.map((__, j) => pearsonCorr(vectors[i], vectors[j])));
+
+  const corrColor = r => {
+    if (r >= 0.7)  return T.green;
+    if (r >= 0.3)  return T.teal;
+    if (r <= -0.7) return T.red;
+    if (r <= -0.3) return T.orange;
+    return T.dim;
+  };
+  const corrBg = r => {
+    const abs = Math.abs(r);
+    const base = r > 0 ? T.green : T.red;
+    return `${base}${Math.round(abs * 40 + 5).toString(16).padStart(2,"0")}`;
+  };
+
+  // ── Distribution histograms ────────────────────────────────────
+  const histogram = (values, bins = 5) => {
+    const mn = Math.min(...values), mx = Math.max(...values);
+    const step = (mx - mn) / bins || 1;
+    return Array.from({ length: bins }, (_, i) => {
+      const lo = mn + i * step, hi = lo + step;
+      return { lo: Math.round(lo), hi: Math.round(hi), count: values.filter(v => v >= lo && (i === bins-1 ? v <= hi : v < hi)).length };
+    });
+  };
+
+  const distMetrics = [
+    { label: "Commit Distribution", values: devs.map(d => d.commits), color: T.indigo },
+    { label: "Burnout Distribution", values: devs.map(d => d.burnout), color: T.red },
+    { label: "Flow Score Distribution", values: devs.map(d => d.flow?.score || 0), color: T.teal },
+    { label: "Contribution Distribution", values: devs.map(d => d.contribution), color: T.purple },
+  ];
+
+  // ── Research insights ──────────────────────────────────────────
+  const burnoutVsFlow   = pearsonCorr(devs.map(d => d.burnout), devs.map(d => d.flow?.score||0));
+  const commitVsContrib = pearsonCorr(devs.map(d => d.commits),  devs.map(d => d.contribution));
+  const psychVsCollab   = pearsonCorr(devs.map(d => d.psych?.score||0), devs.map(d => d.jira?.comments||0));
+  const tasksVsBurnout  = pearsonCorr(devs.map(d => d.open_tasks||0),   devs.map(d => d.burnout));
+
+  const findings = [
+    {
+      hypothesis: "Higher burnout reduces flow state quality",
+      correlation: burnoutVsFlow,
+      interpretation: Math.abs(burnoutVsFlow) > 0.5
+        ? burnoutVsFlow < 0 ? "Confirmed — strong negative correlation. Burnout degrades deep focus." : "Contradicted — burnout appears to correlate with more activity (possible overwork pattern)."
+        : "Inconclusive — weak correlation in current dataset.",
+      field: "Behavioral Science"
+    },
+    {
+      hypothesis: "Commit volume predicts contribution score",
+      correlation: commitVsContrib,
+      interpretation: Math.abs(commitVsContrib) > 0.6
+        ? "Confirmed — commit frequency is a strong predictor of overall contribution." : "Partially confirmed — output quality metrics dilute raw commit impact.",
+      field: "Software Engineering Research"
+    },
+    {
+      hypothesis: "Psychological safety increases collaborative output",
+      correlation: psychVsCollab,
+      interpretation: Math.abs(psychVsCollab) > 0.4
+        ? "Confirmed — safer environments produce more cross-team discussion." : "Inconclusive — sample size too small for strong signal.",
+      field: "Organizational Psychology"
+    },
+    {
+      hypothesis: "Open task count is the primary burnout driver",
+      correlation: tasksVsBurnout,
+      interpretation: Math.abs(tasksVsBurnout) > 0.5
+        ? "Confirmed — backlog size strongly predicts burnout index." : "Partial — burnout is multi-causal; task load alone is insufficient predictor.",
+      field: "AI Productivity Analytics"
+    },
+  ];
+
+  // ── Export as JSON dataset ────────────────────────────────────
+  const exportDataset = () => {
+    const dataset = {
+      metadata: {
+        exported_at: new Date().toISOString(),
+        version: "1.0",
+        fields: ["name","role","commits","additions","files","burnout","flow_score","contribution","open_tasks","psych_score","archetype"],
+        research_fields: ["software_engineering","behavioral_science","ai_productivity_analytics"]
+      },
+      developers: devs.map(d => ({
+        name: d.name, role: d.role,
+        commits: d.commits, additions: d.additions, files: d.files,
+        burnout: d.burnout, flow_score: d.flow?.score, contribution: d.contribution,
+        open_tasks: d.open_tasks, psych_score: d.psych?.score,
+        archetype: d.archetype,
+        dna: d.dna,
+      })),
+      correlations: Object.fromEntries(
+        METRICS.flatMap((m1, i) => METRICS.map((m2, j) => [`${m1.key}_vs_${m2.key}`, corrMatrix[i][j]]))
+      ),
+    };
+    const blob = new Blob([JSON.stringify(dataset, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "deviq_research_dataset.json"; a.click();
+    URL.revokeObjectURL(url);
+    setExportMsg("Dataset exported!");
+    setTimeout(() => setExportMsg(""), 3000);
+  };
+
+  const tabs = [
+    { id: "distributions", label: "📊 Distributions" },
+    { id: "correlations",  label: "🔗 Correlation Matrix" },
+    { id: "findings",      label: "🔬 Research Findings" },
+    { id: "export",        label: "📦 Dataset Export" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Header */}
+      <Card glow={T.teal}>
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 22 }}>🔬</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.teal, textTransform: "uppercase", letterSpacing: "0.06em" }}>Engineering Behavior Research Platform</span>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.8 }}>
+              A live research dataset derived from real commit and Jira activity.
+              Compute <strong style={{ color: T.text }}>statistical correlations</strong>,
+              study <strong style={{ color: T.text }}>behavioral patterns</strong>,
+              and export anonymizable datasets for academic or enterprise research.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {["Software Engineering Research","Behavioral Science","Organizational Psychology","AI Productivity Analytics"].map(f => (
+                <Tag key={f} color={T.teal} size={10}>{f}</Tag>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: "9px 18px", borderRadius: 9, fontSize: 12, fontWeight: 600,
+            cursor: "pointer", fontFamily: "inherit", border: "none",
+            background: activeTab === t.id ? T.teal : T.elevated,
+            color: activeTab === t.id ? "#fff" : T.muted,
+            transition: "all 0.15s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Tab: Distributions ── */}
+      {activeTab === "distributions" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          {distMetrics.map(dm => {
+            const bins = histogram(dm.values, 5);
+            const maxCount = Math.max(...bins.map(b => b.count), 1);
+            return (
+              <Card key={dm.label}>
+                <SH icon="📊" title={dm.label} />
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
+                  {bins.map((b, i) => (
+                    <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", width: "100%" }}>
+                        <div style={{ width: "100%", background: `${dm.color}${i === bins.findIndex(x => x.count === maxCount) ? "ff" : "88"}`, borderRadius: "4px 4px 0 0", height: `${(b.count / maxCount) * 100}%`, minHeight: 3 }} />
+                      </div>
+                      <div style={{ fontSize: 8, color: T.dim, marginTop: 3 }}>{b.lo}–{b.hi}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 10 }}>
+                  {[
+                    ["Mean", Math.round(dm.values.reduce((a,b)=>a+b,0)/dm.values.length)],
+                    ["Min",  Math.min(...dm.values)],
+                    ["Max",  Math.max(...dm.values)],
+                    ["Std",  Math.round(Math.sqrt(dm.values.reduce((s,v)=>s+(v-dm.values.reduce((a,b)=>a+b,0)/dm.values.length)**2,0)/dm.values.length))],
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ flex: 1, textAlign: "center", padding: "6px 8px", background: T.elevated, borderRadius: 7 }}>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: dm.color }}>{v}</div>
+                      <div style={{ fontSize: 8, color: T.dim }}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Tab: Correlation Matrix ── */}
+      {activeTab === "correlations" && (
+        <Card>
+          <SH icon="🔗" title="Pearson Correlation Matrix — All Behavioral Metrics" />
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 16 }}>
+            Values range from −1 (perfect negative) to +1 (perfect positive). Computed live from developer data.
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: "8px 12px", fontSize: 9, color: T.dim, textAlign: "left", width: 100 }}>Metric</th>
+                  {METRICS.map(m => (
+                    <th key={m.key} style={{ padding: "8px 10px", fontSize: 9, color: T.muted, textAlign: "center", fontWeight: 700, whiteSpace: "nowrap" }}>{m.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {METRICS.map((m1, i) => (
+                  <tr key={m1.key}>
+                    <td style={{ padding: "8px 12px", fontSize: 10, color: T.text, fontWeight: 700, whiteSpace: "nowrap" }}>{m1.label}</td>
+                    {METRICS.map((m2, j) => {
+                      const r = corrMatrix[i][j];
+                      const isDiag = i === j;
+                      return (
+                        <td key={m2.key} style={{
+                          padding: "6px 8px", textAlign: "center",
+                          background: isDiag ? T.elevated : corrBg(r),
+                          borderRadius: 4
+                        }}>
+                          <span style={{ fontSize: 11, fontWeight: isDiag ? 900 : 700, color: isDiag ? T.dim : corrColor(r) }}>
+                            {isDiag ? "—" : r.toFixed(2)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 16, flexWrap: "wrap" }}>
+            {[["≥ 0.7", "Strong +", T.green], ["0.3–0.7", "Moderate +", T.teal], ["−0.3–0.3", "Weak / None", T.dim], ["−0.3 to −0.7", "Moderate −", T.orange], ["≤ −0.7", "Strong −", T.red]].map(([r, l, c]) => (
+              <div key={l} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: `${c}55`, border: `1px solid ${c}` }} />
+                <span style={{ color: T.muted }}>{r}</span>
+                <span style={{ color: c, fontWeight: 700 }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Tab: Research Findings ── */}
+      {activeTab === "findings" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {findings.map((f, i) => {
+            const abs = Math.abs(f.correlation);
+            const strength = abs >= 0.7 ? "Strong" : abs >= 0.4 ? "Moderate" : "Weak";
+            const sigColor = abs >= 0.7 ? T.green : abs >= 0.4 ? T.amber : T.dim;
+            return (
+              <Card key={i} glow={sigColor}>
+                <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <Tag color={T.teal} size={10}>{f.field}</Tag>
+                      <Tag color={sigColor} size={10}>{strength} Signal</Tag>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 6 }}>
+                      H: "{f.hypothesis}"
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>{f.interpretation}</div>
+                  </div>
+                  <div style={{ textAlign: "center", flexShrink: 0, padding: "14px 18px", background: T.elevated, borderRadius: 12 }}>
+                    <div style={{ fontSize: 26, fontWeight: 900, color: sigColor }}>{f.correlation > 0 ? "+" : ""}{f.correlation.toFixed(2)}</div>
+                    <div style={{ fontSize: 9, color: T.dim, marginTop: 3 }}>Pearson r</div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+          <Card>
+            <SH icon="📝" title="Methodology Notes" />
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.9 }}>
+              <strong style={{ color: T.text }}>Dataset:</strong> {devs.length} developers · {data.tickets.length} Jira issues · {data.fileData.length} tracked files.<br />
+              <strong style={{ color: T.text }}>Correlation method:</strong> Pearson r (linear association). For small N, results are directional indicators, not statistically significant at p&lt;0.05 without larger samples.<br />
+              <strong style={{ color: T.text }}>Limitations:</strong> Self-selection bias (active committers over-represented), Jira hygiene variance, no time-series decomposition.<br />
+              <strong style={{ color: T.text }}>Recommended next steps:</strong> Longitudinal tracking over 6+ sprints, blind qualitative surveys to validate psych proxy, cross-team replication.
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Tab: Dataset Export ── */}
+      {activeTab === "export" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card glow={T.indigo}>
+            <SH icon="📦" title="Export Research Dataset" />
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.8, marginBottom: 20 }}>
+              Export a structured JSON dataset containing all developer behavioral metrics, DNA profiles, correlation coefficients,
+              and metadata — ready for use in academic research tools (R, Python, SPSS) or enterprise analytics pipelines.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
+              {[
+                { l: "Developer Records", v: devs.length, icon: "👤" },
+                { l: "Behavioral Metrics", v: METRICS.length, icon: "📐" },
+                { l: "Correlation Pairs", v: METRICS.length ** 2, icon: "🔗" },
+                { l: "Jira Issues", v: data.tickets.length, icon: "🎫" },
+                { l: "Tracked Files", v: data.fileData.length, icon: "📁" },
+                { l: "DNA Profiles", v: devs.filter(d => d.dna).length, icon: "🧬" },
+              ].map(m => (
+                <div key={m.l} style={{ padding: "14px", background: T.elevated, borderRadius: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{m.icon}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.indigo }}>{m.v}</div>
+                  <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>{m.l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <button onClick={exportDataset} style={{
+                padding: "12px 28px", background: T.teal, color: "#fff", border: "none",
+                borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit"
+              }}>
+                ⬇ Download JSON Dataset
+              </button>
+              {exportMsg && <Tag color={T.green}>{exportMsg}</Tag>}
+            </div>
+          </Card>
+          <Card>
+            <SH icon="📋" title="Dataset Schema Preview" />
+            <pre style={{
+              fontSize: 10, color: T.green, background: "#0f172a", borderRadius: 10,
+              padding: "16px 20px", overflowX: "auto", lineHeight: 1.7,
+              border: `1px solid ${T.green}22`
+            }}>{JSON.stringify({
+              metadata: { version: "1.0", exported_at: "...", fields: ["name","role","commits","burnout","flow_score","dna","..."] },
+              developers: [{ name: devs[0]?.name, commits: devs[0]?.commits, burnout: devs[0]?.burnout, archetype: devs[0]?.archetype, dna: devs[0]?.dna }],
+              correlations: { "burnout_vs_flow": burnoutVsFlow, "commits_vs_contribution": commitVsContrib, "...": "..." }
+            }, null, 2)}</pre>
+          </Card>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   PAGE: ENGINEERING KNOWLEDGE GRAPH
+   Nodes: Developers · Files · Modules · Repositories · Technologies
+   Edges: created · reviewed · modified · commented · depends_on
+═════════════════════════════════════════════════════════════════ */
+
+/* Build the full graph from existing data */
+function buildKnowledgeGraph(devs, fileData, deps, tickets) {
+  const nodes = [];
+  const edges = [];
+  let nid = 0;
+  const id = () => `n${nid++}`;
+
+  /* ── Repositories ── */
+  const repos = [
+    { id: "repo-core",     label: "core-api",       tech: ["Python","FastAPI"] },
+    { id: "repo-frontend", label: "frontend",        tech: ["React","TypeScript"] },
+    { id: "repo-infra",    label: "infra-k8s",       tech: ["Kubernetes","Docker"] },
+    { id: "repo-data",     label: "data-pipeline",   tech: ["Python","SQL"] },
+  ];
+  repos.forEach(r => nodes.push({ ...r, type: "repo", size: 28 }));
+
+  /* ── Technologies ── */
+  const techSet = {};
+  const techColors = { Python:T.indigo, React:T.sky, FastAPI:T.teal, TypeScript:T.purple,
+                       Kubernetes:T.orange, Docker:T.amber, SQL:T.green, Django:T.green,
+                       Node:T.teal, Auth:T.red, QA:T.pink, "CI/CD":T.amber };
+  const addTech = (name, repoId) => {
+    if (!techSet[name]) {
+      const nId = `tech-${name}`;
+      techSet[name] = nId;
+      nodes.push({ id: nId, label: name, type: "tech", size: 16, color: techColors[name] || T.muted });
+    }
+    edges.push({ from: techSet[name], to: repoId, kind: "depends_on" });
+  };
+  repos.forEach(r => r.tech.forEach(t => addTech(t, r.id)));
+  devs.forEach(dev => (dev.skills||[]).forEach(s => addTech(s, `repo-core`)));
+
+  /* ── Modules (group files by prefix) ── */
+  const moduleMap = {};
+  fileData.forEach(f => {
+    const mod = f.file.includes("/") ? f.file.split("/")[0] : f.file.replace(/\..*$/, "").replace(/_.*$/, "");
+    if (!moduleMap[mod]) {
+      const mId = `mod-${mod}`;
+      moduleMap[mod] = mId;
+      const repoId = f.file.endsWith(".jsx") || f.file.endsWith(".tsx") ? "repo-frontend"
+                   : f.file.includes("pipeline") || f.file.includes("etl") ? "repo-data"
+                   : "repo-core";
+      nodes.push({ id: mId, label: mod, type: "module", size: 20, repoId });
+      edges.push({ from: mId, to: repoId, kind: "depends_on" });
+    }
+  });
+
+  /* ── Files ── */
+  fileData.forEach(f => {
+    const fId = `file-${f.file}`;
+    const mod  = f.file.includes("/") ? f.file.split("/")[0] : f.file.replace(/\..*$/, "").replace(/_.*$/, "");
+    nodes.push({ id: fId, label: f.file, type: "file", size: 12, entropy: f.entropy, risk: f.risk, bus: f.bus });
+    edges.push({ from: fId, to: moduleMap[mod] || "repo-core", kind: "depends_on" });
+  });
+
+  /* ── Developers + their edges ── */
+  devs.forEach(dev => {
+    const dId = `dev-${dev.name}`;
+    nodes.push({ id: dId, label: dev.name, type: "dev", size: 22 + dev.contribution / 8,
+                 avatar: dev.avatar, burnout: dev.burnout, contribution: dev.contribution,
+                 risk: dev.risk, archetype: dev.archetype });
+
+    /* created / modified edges from fileData ownership */
+    fileData.forEach(f => {
+      const fId  = `file-${f.file}`;
+      const cnt  = f.devs?.[dev.name] || 0;
+      if (cnt === 0) return;
+      const isTop = f.top_owner === dev.name;
+      edges.push({ from: dId, to: fId, kind: isTop ? "created" : "modified", weight: cnt });
+    });
+
+    /* reviewed edges: cross-reviews from deps */
+    deps.filter(d => d.from === dev.name || d.to === dev.name).forEach(d => {
+      const peer = d.from === dev.name ? d.to : d.from;
+      const pId  = `dev-${peer}`;
+      edges.push({ from: dId, to: pId, kind: "reviewed", weight: d.weight, label: d.label });
+    });
+
+    /* commented edges from tickets */
+    tickets.filter(t => t.assignee === dev.name).slice(0, 3).forEach(t => {
+      const fMatch = fileData.find(f => f.top_owner === dev.name);
+      if (fMatch) edges.push({ from: dId, to: `file-${fMatch.file}`, kind: "commented", label: t.key });
+    });
+  });
+
+  return { nodes, edges };
+}
+
+/* Force-directed layout — O(n²) repulsion + spring attraction */
+function useForceLayout(nodes, edges, width, height) {
+  const [positions, setPositions] = useState(() => {
+    const pos = {};
+    nodes.forEach((n, i) => {
+      const angle  = (i / nodes.length) * 2 * Math.PI;
+      const radius = Math.min(width, height) * 0.32;
+      pos[n.id] = {
+        x: width  / 2 + radius * Math.cos(angle) * (0.6 + Math.random() * 0.4),
+        y: height / 2 + radius * Math.sin(angle) * (0.6 + Math.random() * 0.4),
+        vx: 0, vy: 0,
+      };
+    });
+    return pos;
+  });
+
+  const iterRef  = useRef(0);
+  const posRef   = useRef(positions);
+  const rafRef   = useRef(null);
+
+  useEffect(() => {
+    posRef.current = { ...positions };
+  }, []);
+
+  useEffect(() => {
+    const MAX_ITER = 280;
+    const K = 90, REPEL = 6000, DAMP = 0.82, DT = 0.55;
+    const edgeMap = {};
+    edges.forEach(e => {
+      (edgeMap[e.from] = edgeMap[e.from] || []).push(e.to);
+      (edgeMap[e.to]   = edgeMap[e.to]   || []).push(e.from);
+    });
+
+    const step = () => {
+      if (iterRef.current >= MAX_ITER) return;
+      iterRef.current++;
+      const pos  = posRef.current;
+      const force = {};
+      nodes.forEach(n => { force[n.id] = { x: 0, y: 0 }; });
+
+      /* repulsion */
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          const dx = pos[b.id].x - pos[a.id].x;
+          const dy = pos[b.id].y - pos[a.id].y;
+          const dist = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
+          const f = REPEL / (dist * dist);
+          force[a.id].x -= f * dx / dist;
+          force[a.id].y -= f * dy / dist;
+          force[b.id].x += f * dx / dist;
+          force[b.id].y += f * dy / dist;
+        }
+      }
+      /* attraction */
+      edges.forEach(e => {
+        if (!pos[e.from] || !pos[e.to]) return;
+        const dx = pos[e.to].x - pos[e.from].x;
+        const dy = pos[e.to].y - pos[e.from].y;
+        const dist = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
+        const f = (dist - K) * 0.04;
+        force[e.from].x += f * dx / dist;
+        force[e.from].y += f * dy / dist;
+        force[e.to].x   -= f * dx / dist;
+        force[e.to].y   -= f * dy / dist;
+      });
+      /* integrate + clamp */
+      const next = {};
+      nodes.forEach(n => {
+        const p = pos[n.id];
+        const vx = (p.vx + force[n.id].x * DT) * DAMP;
+        const vy = (p.vy + force[n.id].y * DT) * DAMP;
+        next[n.id] = {
+          x:  Math.max(40, Math.min(width  - 40, p.x + vx)),
+          y:  Math.max(40, Math.min(height - 40, p.y + vy)),
+          vx, vy,
+        };
+      });
+      posRef.current = next;
+      if (iterRef.current % 8 === 0) setPositions({ ...next });
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);                              // run once on mount
+
+  return positions;
+}
+
+const NODE_COLORS = {
+  dev:    T.indigo,
+  file:   T.teal,
+  module: T.purple,
+  repo:   T.orange,
+  tech:   T.sky,
+};
+const NODE_ICONS  = { dev: "👤", file: "📄", module: "📦", repo: "🗄", tech: "⚙" };
+const EDGE_COLORS = {
+  created:    T.green,
+  modified:   T.indigo,
+  reviewed:   T.amber,
+  commented:  T.teal,
+  depends_on: `${T.muted}55`,
+};
+const EDGE_DASH   = { created:"none", modified:"none", reviewed:"4,3", commented:"2,4", depends_on:"6,4" };
+
+function KnowledgeGraphPage({ data }) {
+  const W = 900, H = 560;
+
+  const { nodes, edges } = useMemo(
+    () => buildKnowledgeGraph(data.devs, data.fileData, data.deps, data.tickets),
+    []
+  );
+
+  const positions = useForceLayout(nodes, edges, W, H);
+
+  const [hovered,  setHovered]  = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [filter,   setFilter]   = useState("all");   // node type filter
+  const [edgeFilter, setEdgeFilter] = useState("all");
+  const [search,   setSearch]   = useState("");
+
+  const activeNode = selected || hovered;
+
+  /* neighbours of active node */
+  const neighbourIds = useMemo(() => {
+    if (!activeNode) return new Set();
+    const s = new Set();
+    edges.forEach(e => {
+      if (e.from === activeNode || e.to === activeNode) { s.add(e.from); s.add(e.to); }
+    });
+    return s;
+  }, [activeNode, edges]);
+
+  const visibleNodes = nodes.filter(n =>
+    (filter === "all" || n.type === filter) &&
+    (!search || n.label.toLowerCase().includes(search.toLowerCase()))
+  );
+  const visibleIds = new Set(visibleNodes.map(n => n.id));
+
+  const visibleEdges = edges.filter(e =>
+    visibleIds.has(e.from) && visibleIds.has(e.to) &&
+    (edgeFilter === "all" || e.kind === edgeFilter)
+  );
+
+  /* stats */
+  const stats = useMemo(() => ({
+    nodes:   nodes.length,
+    edges:   edges.length,
+    devs:    nodes.filter(n => n.type === "dev").length,
+    files:   nodes.filter(n => n.type === "file").length,
+    modules: nodes.filter(n => n.type === "module").length,
+    repos:   nodes.filter(n => n.type === "repo").length,
+    techs:   nodes.filter(n => n.type === "tech").length,
+  }), [nodes, edges]);
+
+  /* node detail panel */
+  const selNode = activeNode ? nodes.find(n => n.id === activeNode) : null;
+  const selEdges = activeNode ? edges.filter(e => e.from === activeNode || e.to === activeNode) : [];
+  const edgeCounts = selEdges.reduce((acc, e) => { acc[e.kind] = (acc[e.kind]||0)+1; return acc; }, {});
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Header */}
+      <Card glow={T.indigo}>
+        <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 22 }}>🧠</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.indigo, textTransform: "uppercase", letterSpacing: "0.06em" }}>Engineering Knowledge Graph</span>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.8 }}>
+              A living brain map of your engineering org. Nodes represent <strong style={{ color: T.text }}>developers, files, modules, repositories</strong> and <strong style={{ color: T.text }}>technologies</strong>.
+              Edges encode <strong style={{ color: T.green }}>created</strong>, <strong style={{ color: T.indigo }}>modified</strong>, <strong style={{ color: T.amber }}>reviewed</strong>, <strong style={{ color: T.teal }}>commented</strong> and <strong style={{ color: T.muted }}>depends_on</strong> relationships.
+              Hover or click any node to explore its connections.
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, flexShrink: 0 }}>
+            {[
+              ["Nodes",  stats.nodes,  T.indigo],
+              ["Edges",  stats.edges,  T.teal],
+              ["Devs",   stats.devs,   T.purple],
+              ["Files",  stats.files,  T.teal],
+              ["Modules",stats.modules,T.orange],
+              ["Techs",  stats.techs,  T.sky],
+            ].map(([l,v,c]) => (
+              <div key={l} style={{ textAlign:"center", padding:"8px 14px", background:T.elevated, borderRadius:10, border:`1px solid ${c}22` }}>
+                <div style={{ fontSize:18, fontWeight:900, color:c }}>{v}</div>
+                <div style={{ fontSize:8, color:T.dim, marginTop:2, textTransform:"uppercase", letterSpacing:"0.08em" }}>{l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* Controls */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+        {/* Search */}
+        <div style={{ position:"relative", flex:1, minWidth:180 }}>
+          <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color:T.muted, fontSize:12 }}>⌕</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search nodes…"
+            style={{ width:"100%", background:T.surface, border:`1px solid ${T.borderHi}`, borderRadius:9,
+              padding:"7px 12px 7px 28px", color:T.text, fontSize:11, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
+        </div>
+        {/* Node type filter */}
+        <div style={{ display:"flex", gap:6 }}>
+          {["all","dev","file","module","repo","tech"].map(t => (
+            <button key={t} onClick={() => setFilter(t)} style={{
+              padding:"6px 14px", borderRadius:8, fontSize:11, fontWeight:600, cursor:"pointer",
+              fontFamily:"inherit", border:"none",
+              background: filter===t ? (NODE_COLORS[t]||T.indigo) : T.elevated,
+              color: filter===t ? "#fff" : T.muted,
+            }}>{NODE_ICONS[t]||""} {t}</button>
+          ))}
+        </div>
+        {/* Edge type filter */}
+        <div style={{ display:"flex", gap:6 }}>
+          {["all","created","modified","reviewed","commented","depends_on"].map(k => (
+            <button key={k} onClick={() => setEdgeFilter(k)} style={{
+              padding:"6px 12px", borderRadius:8, fontSize:10, fontWeight:600, cursor:"pointer",
+              fontFamily:"inherit", border:`1.5px solid ${edgeFilter===k ? (EDGE_COLORS[k]||T.indigo) : "transparent"}`,
+              background: edgeFilter===k ? `${EDGE_COLORS[k]||T.indigo}22` : T.elevated,
+              color: edgeFilter===k ? (EDGE_COLORS[k]||T.indigo) : T.muted,
+            }}>{k}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main graph + side panel */}
+      <div style={{ display:"flex", gap:16 }}>
+
+        {/* SVG Canvas */}
+        <Card style={{ flex:1, padding:0, overflow:"hidden", position:"relative" }}>
+          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}
+            style={{ display:"block", cursor:"default", background: `radial-gradient(ellipse at 50% 50%, ${T.elevated} 0%, ${T.bg} 100%)` }}>
+            <defs>
+              {Object.entries(EDGE_COLORS).map(([k,c]) => (
+                <marker key={k} id={`arrow-${k}`} markerWidth="7" markerHeight="7"
+                  refX="6" refY="3.5" orient="auto">
+                  <polygon points="0 0, 7 3.5, 0 7" fill={c} opacity="0.7" />
+                </marker>
+              ))}
+              <filter id="kg-glow">
+                <feGaussianBlur stdDeviation="4" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+
+            {/* Edges */}
+            {visibleEdges.map((e, i) => {
+              const a = positions[e.from], b = positions[e.to];
+              if (!a || !b) return null;
+              const isActive = activeNode && (e.from === activeNode || e.to === activeNode);
+              const fade     = activeNode && !isActive;
+              const col      = EDGE_COLORS[e.kind] || T.muted;
+              /* slight curve */
+              const mx = (a.x + b.x) / 2 + (b.y - a.y) * 0.08;
+              const my = (a.y + b.y) / 2 - (b.x - a.x) * 0.08;
+              return (
+                <path key={i}
+                  d={`M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`}
+                  fill="none"
+                  stroke={col}
+                  strokeWidth={isActive ? 2.2 : 1}
+                  strokeDasharray={EDGE_DASH[e.kind]}
+                  opacity={fade ? 0.06 : isActive ? 0.9 : 0.35}
+                  markerEnd={isActive ? `url(#arrow-${e.kind})` : undefined}
+                  style={{ transition:"opacity 0.2s, stroke-width 0.2s" }}
+                />
+              );
+            })}
+
+            {/* Nodes */}
+            {visibleNodes.map(n => {
+              const p = positions[n.id];
+              if (!p) return null;
+              const col     = NODE_COLORS[n.type] || T.muted;
+              const isActive  = n.id === activeNode;
+              const isNeighbour = neighbourIds.has(n.id);
+              const fade    = activeNode && !isActive && !isNeighbour;
+              const r       = n.size || 14;
+              return (
+                <g key={n.id}
+                  onMouseEnter={() => setHovered(n.id)}
+                  onMouseLeave={() => setHovered(null)}
+                  onClick={() => setSelected(s => s === n.id ? null : n.id)}
+                  style={{ cursor:"pointer" }}>
+                  {isActive && <circle cx={p.x} cy={p.y} r={r+10} fill={`${col}18`} filter="url(#kg-glow)" />}
+                  <circle cx={p.x} cy={p.y} r={r}
+                    fill={isActive ? col : isNeighbour ? `${col}cc` : `${col}55`}
+                    stroke={col}
+                    strokeWidth={isActive ? 2.5 : isNeighbour ? 1.5 : 1}
+                    opacity={fade ? 0.15 : 1}
+                    style={{ transition:"all 0.2s" }}
+                  />
+                  <text x={p.x} y={p.y + 4} textAnchor="middle"
+                    fill={isActive || isNeighbour ? "#fff" : col}
+                    fontSize={n.type==="dev" ? 9 : 8}
+                    fontWeight="700" fontFamily="monospace"
+                    opacity={fade ? 0.15 : 1}
+                    style={{ pointerEvents:"none", userSelect:"none" }}>
+                    {n.type === "dev" ? n.avatar : NODE_ICONS[n.type]}
+                  </text>
+                  {(isActive || isNeighbour || !activeNode) && (
+                    <text x={p.x} y={p.y + r + 13} textAnchor="middle"
+                      fill={isActive ? col : T.muted}
+                      fontSize="7" fontFamily="monospace"
+                      opacity={fade ? 0 : 1}
+                      style={{ pointerEvents:"none", userSelect:"none" }}>
+                      {n.label.length > 14 ? n.label.slice(0,13)+"…" : n.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Legend overlay */}
+          <div style={{ position:"absolute", bottom:14, left:14, display:"flex", flexDirection:"column", gap:5,
+            background:`${T.surface}ee`, borderRadius:10, padding:"10px 14px", border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:9, color:T.dim, fontWeight:800, marginBottom:2, letterSpacing:"0.1em" }}>NODE TYPES</div>
+            {Object.entries(NODE_COLORS).map(([t,c]) => (
+              <div key={t} style={{ display:"flex", alignItems:"center", gap:7, fontSize:9, color:T.muted }}>
+                <div style={{ width:10, height:10, borderRadius:"50%", background:c }} />
+                {NODE_ICONS[t]} {t}
+              </div>
+            ))}
+          </div>
+          <div style={{ position:"absolute", bottom:14, right:14, display:"flex", flexDirection:"column", gap:5,
+            background:`${T.surface}ee`, borderRadius:10, padding:"10px 14px", border:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:9, color:T.dim, fontWeight:800, marginBottom:2, letterSpacing:"0.1em" }}>EDGE TYPES</div>
+            {Object.entries(EDGE_COLORS).map(([k,c]) => (
+              <div key={k} style={{ display:"flex", alignItems:"center", gap:7, fontSize:9, color:T.muted }}>
+                <svg width={24} height={8}>
+                  <line x1={0} y1={4} x2={24} y2={4} stroke={c} strokeWidth={1.5} strokeDasharray={EDGE_DASH[k]} />
+                </svg>
+                {k}
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Detail Panel */}
+        <div style={{ width:240, display:"flex", flexDirection:"column", gap:12, flexShrink:0 }}>
+          {selNode ? (
+            <>
+              <Card glow={NODE_COLORS[selNode.type]}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                  <div style={{ width:40, height:40, borderRadius:"50%", flexShrink:0,
+                    background:`${NODE_COLORS[selNode.type]}22`,
+                    border:`2px solid ${NODE_COLORS[selNode.type]}`,
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>
+                    {selNode.type === "dev" ? selNode.avatar : NODE_ICONS[selNode.type]}
+                  </div>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:800, color:T.text }}>{selNode.label}</div>
+                    <Tag color={NODE_COLORS[selNode.type]} size={9}>{selNode.type.toUpperCase()}</Tag>
+                  </div>
+                </div>
+
+                {selNode.type === "dev" && (
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10 }}>
+                    {[
+                      ["Contribution", selNode.contribution, T.indigo],
+                      ["Burnout",      selNode.burnout,      T.red],
+                    ].map(([l,v,c]) => (
+                      <div key={l}>
+                        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                          <span style={{ fontSize:9, color:T.muted }}>{l}</span>
+                          <span style={{ fontSize:9, color:c, fontWeight:700 }}>{v}%</span>
+                        </div>
+                        <Bar value={v} color={c} h={4} />
+                      </div>
+                    ))}
+                    {selNode.archetype && <Tag color={T.purple} size={9}>{selNode.archetype}</Tag>}
+                  </div>
+                )}
+
+                {selNode.type === "file" && (
+                  <div style={{ fontSize:10, color:T.muted, display:"flex", flexDirection:"column", gap:4 }}>
+                    <div>Entropy: <strong style={{ color: selNode.entropy>=2?T.red:T.amber }}>{selNode.entropy?.toFixed(2)}</strong></div>
+                    <div>Bus Factor: <strong style={{ color: selNode.bus<=1?T.red:T.green }}>{selNode.bus}</strong></div>
+                    <div>Risk: <strong style={{ color: selNode.risk>=75?T.red:T.amber }}>{selNode.risk}</strong></div>
+                  </div>
+                )}
+
+                <div style={{ marginTop:12 }}>
+                  <div style={{ fontSize:9, color:T.dim, fontWeight:800, letterSpacing:"0.1em", marginBottom:8 }}>CONNECTIONS ({selEdges.length})</div>
+                  {Object.entries(edgeCounts).map(([kind, count]) => (
+                    <div key={kind} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <svg width={14} height={6}>
+                          <line x1={0} y1={3} x2={14} y2={3} stroke={EDGE_COLORS[kind]} strokeWidth={1.5} strokeDasharray={EDGE_DASH[kind]} />
+                        </svg>
+                        <span style={{ fontSize:10, color:T.muted }}>{kind}</span>
+                      </div>
+                      <span style={{ fontSize:11, fontWeight:800, color:EDGE_COLORS[kind] }}>{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Connected nodes list */}
+              <Card style={{ flex:1, overflow:"hidden" }}>
+                <div style={{ fontSize:9, color:T.dim, fontWeight:800, letterSpacing:"0.1em", marginBottom:10 }}>CONNECTED TO</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:320, overflowY:"auto" }}>
+                  {selEdges.slice(0,12).map((e, i) => {
+                    const peerId = e.from === selNode.id ? e.to : e.from;
+                    const peer   = nodes.find(n => n.id === peerId);
+                    if (!peer) return null;
+                    return (
+                      <div key={i} onClick={() => setSelected(peerId)}
+                        style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px",
+                          background:T.elevated, borderRadius:8, cursor:"pointer",
+                          border:`1px solid ${EDGE_COLORS[e.kind]}33` }}>
+                        <span style={{ fontSize:12 }}>{NODE_ICONS[peer.type]}</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{peer.label}</div>
+                          <div style={{ fontSize:8, color:EDGE_COLORS[e.kind], fontWeight:600 }}>{e.kind}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </>
+          ) : (
+            <Card style={{ height:"100%" }}>
+              <div style={{ fontSize:9, color:T.dim, fontWeight:800, letterSpacing:"0.1em", marginBottom:14 }}>GRAPH SUMMARY</div>
+              {[
+                ["👤 Developers", stats.devs,    T.indigo],
+                ["📄 Files",      stats.files,   T.teal],
+                ["📦 Modules",    stats.modules, T.purple],
+                ["🗄 Repos",      stats.repos,   T.orange],
+                ["⚙ Tech",       stats.techs,   T.sky],
+                ["─ Edges",       stats.edges,   T.muted],
+              ].map(([l,v,c]) => (
+                <div key={l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+                  padding:"8px 0", borderBottom:`1px solid ${T.border}` }}>
+                  <span style={{ fontSize:11, color:T.muted }}>{l}</span>
+                  <span style={{ fontSize:14, fontWeight:800, color:c }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ marginTop:16, padding:"10px 12px", background:T.elevated, borderRadius:8,
+                fontSize:10, color:T.muted, lineHeight:1.7 }}>
+                Click any node to explore its connections and relationships.
+              </div>
+            </Card>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -1813,6 +2988,9 @@ const PAGES = [
   { id: "psych", label: "Psych Safety", icon: "✦" },
   { id: "team", label: "Team & Collaboration", icon: "⬢" },
   { id: "insights", label: "AI Insights", icon: "✦" },
+  { id: "evolution", label: "Evolution Simulator", icon: "🧬" },
+  { id: "research",  label: "Research Platform",   icon: "🔬" },
+  { id: "knowledge", label: "Knowledge Graph",      icon: "🧠" },
 ];
 
 export default function DevIQ() {
@@ -1974,6 +3152,9 @@ export default function DevIQ() {
           {page === "psych" && <PsychPage data={context} />}
           {page === "team" && <TeamPage data={context} />}
           {page === "insights" && <InsightsPage data={context} />}
+          {page === "evolution" && <EvolutionPage data={context} />}
+          {page === "research" && <ResearchPage data={context} />}
+          {page === "knowledge" && <KnowledgeGraphPage data={context} />}
         </main>
       </div>
     </div>
