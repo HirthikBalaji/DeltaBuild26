@@ -3,11 +3,12 @@ import csv
 import json
 import asyncio
 import math
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from watchfiles import awatch
+import ollama
 
 app = FastAPI()
 
@@ -24,6 +25,9 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "Data")
 GITHUB_CSV = os.path.join(DATA_DIR, "github_raw_dataset.csv")
 JIRA_ISSUES_CSV = os.path.join(DATA_DIR, "jira_issues.csv")
 JIRA_COMMENTS_CSV = os.path.join(DATA_DIR, "jira_comments.csv")
+
+# Simple in-memory cache for AI reasoning
+reasoning_cache = {}
 
 def normalize_name(name: str) -> str:
     if not name: return "Unknown"
@@ -133,12 +137,25 @@ def calculate_metrics():
         for name, d in dev_data.items():
             num_files = len(d["files"])
             d["files"] = num_files
+            
+            # Psych Safety Breakdown
+            psych_collab_pct = (d["psych"]["collab"] / d["psych"]["total"] * 100) if d["psych"]["total"] > 0 else 0
             d["psych"]["score"] = round((d["psych"]["collab"] / d["psych"]["total"]) * 50 + 20) if d["psych"]["total"] > 0 else 50
+            d["psych"]["breakdown"] = [
+                {"label": "Collaborative Ratio", "value": f"{psych_collab_pct:.1f}%", "weight": "50%", "reason": "Measures positive interactions like help/verify/implement vs total comments."},
+                {"label": "Base Safety", "value": "20 pts", "weight": "20%", "reason": "Baseline psychological safety score for active team members."}
+            ]
+
+            # Flow Breakdown
             d["flow"]["score"] = min(100, round(50 + (d["commits"] / 10)))
             d["flow"]["label"] = "Deep Focus" if d["flow"]["score"] >= 75 else "Moderate Focus"
             d["flow"]["avg_lines"] = d["additions"] / d["commits"] if d["commits"] > 0 else 0
             d["flow"]["files_per_commit"] = num_files / d["commits"] if d["commits"] > 0 else 0
             d["flow"]["msg_quality"] = 85
+            d["flow"]["breakdown"] = [
+                {"label": "Commit Frequency", "value": f"{d['commits']} commits", "weight": "50%", "reason": "Higher frequency suggests continuous integration and progress."},
+                {"label": "Base Flow", "value": "50 pts", "weight": "50%", "reason": "Starting point for flow detection metrics."}
+            ]
 
             j = d["jira"]
             dc = min(d["commits"] / 84 * 30, 30)
@@ -147,27 +164,58 @@ def calculate_metrics():
             dco = min(j["comments"] / 70 * 15, 15)
             df = min(num_files / 20 * 10, 10)
             d["contribution"] = round(dc + da + dt + dco + df)
+            d["contribution_breakdown"] = [
+                {"label": "Commit Volume", "value": f"{d['commits']} commits", "points": round(dc), "max": 30, "reason": "Weighted by total team max (84 commits). Measures output frequency."},
+                {"label": "Code Impact", "value": f"{d['additions']} lines", "points": round(da), "max": 25, "reason": "Weighted by total team max (2375 lines). Measures volume of change."},
+                {"label": "Task Progress", "value": f"{j['done']}/{j['total']} done", "points": round(dt), "max": 20, "reason": "Measures Jira completion rate (Done + 0.5*InProgress)."},
+                {"label": "Communication", "value": f"{j['comments']} comments", "points": round(dco), "max": 15, "reason": "Measures active participation in issue discussions."},
+                {"label": "Knowledge Area", "value": f"{num_files} files", "points": round(df), "max": 10, "reason": "Measures breadth of codebase ownership."}
+            ]
 
             burnout = 0
             cpd = d["commits"] / 30
-            if cpd > 2.5: burnout += 30
-            elif cpd > 1.5: burnout += 20
-            elif cpd > 0.8: burnout += 10
+            burnout_reasons = []
+            if cpd > 2.5: 
+                burnout += 30
+                burnout_reasons.append({"label": "High Velocity", "points": 30, "reason": "Commits per day > 2.5 indicates potential over-exertion."})
+            elif cpd > 1.5: 
+                burnout += 20
+                burnout_reasons.append({"label": "Moderate Velocity", "points": 20, "reason": "Commits per day > 1.5 is elevated."})
+            elif cpd > 0.8: 
+                burnout += 10
+                burnout_reasons.append({"label": "Stable Velocity", "points": 10, "reason": "Commits per day > 0.8 is healthy but active."})
             
             ch = d["additions"]
-            if ch > 2000: burnout += 28
-            elif ch > 1000: burnout += 18
-            elif ch > 400: burnout += 9
+            if ch > 2000: 
+                burnout += 28
+                burnout_reasons.append({"label": "Massive Churn", "points": 28, "reason": "Over 2000 lines added in a single period."})
+            elif ch > 1000: 
+                burnout += 18
+                burnout_reasons.append({"label": "High Churn", "points": 18, "reason": "Over 1000 lines added."})
+            elif ch > 400: 
+                burnout += 9
+                burnout_reasons.append({"label": "Moderate Churn", "points": 9, "reason": "Over 400 lines added."})
             
             op = j["todo"] + j["inprog"]
-            if op > 18: burnout += 28
-            elif op > 12: burnout += 18
-            elif op > 6: burnout += 9
+            if op > 18: 
+                burnout += 28
+                burnout_reasons.append({"label": "Backlog Overload", "points": 28, "reason": "Over 18 open tasks assigned."})
+            elif op > 12: 
+                burnout += 18
+                burnout_reasons.append({"label": "Heavy Backlog", "points": 18, "reason": "Over 12 open tasks assigned."})
+            elif op > 6: 
+                burnout += 9
+                burnout_reasons.append({"label": "Active Backlog", "points": 9, "reason": "Over 6 open tasks assigned."})
             
-            if j["comments"] > 55: burnout += 14
-            elif j["comments"] > 25: burnout += 8
+            if j["comments"] > 55: 
+                burnout += 14
+                burnout_reasons.append({"label": "Discussion Fatigue", "points": 14, "reason": "Extremely high comment volume (>55)."})
+            elif j["comments"] > 25: 
+                burnout += 8
+                burnout_reasons.append({"label": "Active Discussion", "points": 8, "reason": "Elevated comment volume (>25)."})
             
             d["burnout"] = min(burnout, 100)
+            d["burnout_breakdown"] = burnout_reasons
             d["risk"] = "critical" if d["burnout"] >= 80 else "high" if d["burnout"] >= 60 else "medium" if d["burnout"] >= 35 else "low"
             d["pattern"] = "Sprint Sprinter" if d["commits"] > 70 else "Collaborator" if j["comments"] > 50 else "Deep Coder" if d["additions"] / max(d["commits"], 1) > 20 else "Specialist"
             d["open_tasks"] = j["todo"] + j["inprog"]
@@ -212,6 +260,48 @@ def calculate_metrics():
 @app.get("/api/data")
 async def get_data():
     return calculate_metrics()
+
+@app.get("/api/reasoning/{dev_name}")
+async def get_reasoning(dev_name: str):
+    metrics = calculate_metrics()
+    if not metrics:
+        return {"error": "Could not calculate metrics"}
+    
+    dev = next((d for d in metrics["devs"] if d["name"] == dev_name), None)
+    if not dev:
+        return {"error": "Developer not found"}
+
+    # Check cache
+    cache_key = f"{dev_name}_{dev['commits']}_{dev['additions']}_{dev['burnout']}"
+    if cache_key in reasoning_cache:
+        return {"reasoning": reasoning_cache[cache_key]}
+
+    prompt = f"""
+    Analyze the following developer metrics and provide a concise, professional assessment (3-4 sentences).
+    Developer: {dev['name']}
+    Role: {dev['role']}
+    Commits: {dev['commits']}
+    Lines Added: {dev['additions']}
+    Contribution Score: {dev['contribution']}/100
+    Burnout Index: {dev['burnout']}%
+    Flow State: {dev['flow']['label']} ({dev['flow']['score']} score)
+    Psychological Safety: {dev['psych']['score']}/100
+    Jira Tasks: {dev['jira']['total']} total, {dev['open_tasks']} open.
+    
+    Highlight strengths and potential risks (like burnout or fragmentation). Use a supportive, data-driven tone.
+    """
+
+    try:
+        response = ollama.chat(model='llama3.2', messages=[
+            {'role': 'system', 'content': 'You are a senior engineering manager providing performance insights.'},
+            {'role': 'user', 'content': prompt}
+        ])
+        reasoning = response['message']['content']
+        reasoning_cache[cache_key] = reasoning
+        return {"reasoning": reasoning}
+    except Exception as e:
+        print(f"Ollama error: {e}")
+        return {"error": "AI reasoning currently unavailable. Ensure Ollama is running with llama3.2."}
 
 @app.get("/api/events")
 async def events(request: Request):

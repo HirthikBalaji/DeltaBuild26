@@ -592,6 +592,91 @@ function LeaderboardPage({onSelect, data}){
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────
+   SCORING TRANSPARENCY & AI REASONING
+───────────────────────────────────────────────────────────────── */
+function ScoreBreakdown({ title, items, color = T.indigo }) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 11, color: T.dim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, fontWeight: 700 }}>
+        {title} Breakdown
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ padding: "10px 14px", background: T.elevated, borderRadius: 10, border: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{it.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: color }}>
+                {it.points !== undefined ? `+${it.points} / ${it.max}` : it.value}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{it.reason}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AIReasoning({ devName }) {
+  const [reasoning, setReasoning] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchReasoning = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`http://localhost:3001/api/reasoning/${devName}`);
+      const data = await res.json();
+      if (data.reasoning) setReasoning(data.reasoning);
+      else if (data.error) setError(data.error);
+    } catch (err) {
+      setError("Failed to connect to reasoning engine.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReasoning();
+  }, [devName]);
+
+  return (
+    <Card glow={T.purple} style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <span style={{ fontSize: 20 }}>🤖</span>
+        <span style={{ fontSize: 14, fontWeight: 800, color: T.purple, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+          AI Reasoning (Llama 3.2)
+        </span>
+        {loading && <Pulse color={T.purple} />}
+        <button 
+          onClick={fetchReasoning} 
+          disabled={loading}
+          style={{ marginLeft: "auto", fontSize: 11, background: "transparent", border: `1px solid ${T.purple}44`, color: T.purple, borderRadius: 6, padding: "2px 8px", cursor: "pointer" }}
+        >
+          Refresh
+        </button>
+      </div>
+      
+      {loading ? (
+        <div style={{ fontSize: 13, color: T.dim, fontStyle: "italic" }}>Ollama is analyzing metrics...</div>
+      ) : error ? (
+        <div style={{ fontSize: 13, color: T.red, padding: "10px", background: `${T.red}11`, borderRadius: 8 }}>{error}</div>
+      ) : (
+        <div style={{ fontSize: 14, color: T.text, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+          {reasoning || "No reasoning generated yet."}
+        </div>
+      )}
+      
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6 }}>
+        <Tag color={T.purple} size={10}>Powered by Ollama</Tag>
+        <Tag color={T.dim} size={10}>Model: llama3.2</Tag>
+      </div>
+    </Card>
+  );
+}
+
 /* ═════════════════════════════════════════════════════════════════
    PAGE: DEVELOPER PROFILE
 ═════════════════════════════════════════════════════════════════ */
@@ -600,69 +685,83 @@ function ProfilePage({dev, onBack, data}){
   const myTickets=data.tickets.filter(t=>t.assignee===dev.name);
   const flowColor=dev.flow.score>=70?T.green:dev.flow.score>=50?T.amber:T.orange;
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      <button onClick={onBack} style={{alignSelf:"flex-start",padding:"7px 14px",borderRadius:8,
-        border:`1px solid ${T.border}`,background:"transparent",color:T.muted,cursor:"pointer",fontSize:10,fontFamily:"inherit"}}>
-        ← Back
+    <div style={{display:"flex",flexDirection:"column",gap:20}}>
+      <button onClick={onBack} style={{alignSelf:"flex-start",padding:"10px 20px",borderRadius:10,
+        border:`1.5px solid ${T.border}`,background:"transparent",color:T.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit",fontWeight:700}}>
+        ← Back to Leaderboard
       </button>
-      {/* Header */}
-      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-        <Card style={{width:220,flexShrink:0,display:"flex",flexDirection:"column",gap:14,alignItems:"center",textAlign:"center"}}>
-          <div style={{width:64,height:64,borderRadius:"50%",background:`${rc(dev.risk)}14`,
-            border:`2.5px solid ${rc(dev.risk)}`,display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:20,fontWeight:800,color:T.text}}>{dev.avatar}</div>
+      
+      {/* Header & Main Stats */}
+      <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+        <Card style={{width:260,flexShrink:0,display:"flex",flexDirection:"column",gap:16,alignItems:"center",textAlign:"center"}}>
+          <div style={{width:80,height:80,borderRadius:"50%",background:`${rc(dev.risk)}1a`,
+            border:`3px solid ${rc(dev.risk)}`,display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:24,fontWeight:900,color:T.text,boxShadow:`0 4px 15px ${rc(dev.risk)}33`}}>{dev.avatar}</div>
           <div>
-            <div style={{fontSize:16,fontWeight:700,color:T.text}}>{dev.name}</div>
-            <div style={{fontSize:10,color:T.muted,marginTop:2}}>{dev.role}</div>
-            <div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center"}}>
+            <div style={{fontSize:20,fontWeight:800,color:T.text}}>{dev.name}</div>
+            <div style={{fontSize:13,color:T.muted,marginTop:4,fontWeight:600}}>{dev.role}</div>
+            <div style={{marginTop:12,display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
               <Tag color={rc(dev.risk)}>{dev.risk.toUpperCase()}</Tag>
               <Tag color={flowColor}>{dev.flow.label}</Tag>
             </div>
           </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:5,justifyContent:"center"}}>
-            {dev.skills.map(s=><Tag key={s} size={9}>{s}</Tag>)}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center"}}>
+            {dev.skills.map(s=><Tag key={s} size={11}>{s}</Tag>)}
           </div>
-          <div style={{width:"100%",borderTop:`1px solid ${T.border}`,paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            {[["Commits",dev.commits,T.indigoLt],["Lines",fmt(dev.additions),"#34d399"],
+          <div style={{width:"100%",borderTop:`1px solid ${T.border}`,paddingTop:16,display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {[["Commits",dev.commits,T.indigoLt],["Lines",fmt(dev.additions),T.green],
               ["Tasks",dev.jira.total||"—",T.amber],["Open",dev.open_tasks||"—",bc(dev.burnout)]].map(([l,v,c])=>(
               <div key={l}>
-                <div style={{fontSize:15,fontWeight:700,color:c}}>{v}</div>
-                <div style={{fontSize:8,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{l}</div>
+                <div style={{fontSize:18,fontWeight:900,color:c}}>{v}</div>
+                <div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>{l}</div>
               </div>
             ))}
           </div>
         </Card>
-        <div style={{flex:1,display:"flex",flexDirection:"column",gap:14,minWidth:280}}>
-          <Card style={{display:"flex",gap:20,alignItems:"center"}}>
-            <Gauge value={dev.contribution} size={90} stroke={8} color={T.indigo} label="Score"/>
-            <Gauge value={dev.burnout} size={90} stroke={8} color={bc(dev.burnout)} label="Burnout"/>
-            <Gauge value={dev.flow.score} size={90} stroke={8} color={flowColor} label="Flow"/>
-            <Gauge value={dev.psych.score} size={90} stroke={8} color={T.teal} label="PsychSafe"/>
-            <Radar dims={dev.dims} size={150} color={T.indigo}/>
+
+        <div style={{flex:1,display:"flex",flexDirection:"column",gap:20,minWidth:320}}>
+          <Card style={{display:"flex",gap:24,alignItems:"center",justifyContent:"space-around",flexWrap:"wrap"}}>
+            <Gauge value={dev.contribution} size={100} stroke={9} color={T.indigo} label="Score"/>
+            <Gauge value={dev.burnout} size={100} stroke={9} color={bc(dev.burnout)} label="Burnout"/>
+            <Gauge value={dev.flow.score} size={100} stroke={9} color={flowColor} label="Flow"/>
+            <Gauge value={dev.psych.score} size={100} stroke={9} color={T.teal} label="PsychSafe"/>
+            <Radar dims={dev.dims} size={180} color={T.indigo}/>
           </Card>
-          {/* Burnout forecast */}
-          <Card glow={bc(dev.burnout)}>
-            <SH icon="◈" title="Burnout Trajectory Forecast"/>
-            <BurnoutForecast dev={dev}/>
-            <div style={{display:"flex",gap:12,marginTop:10}}>
-              <div style={{flex:1,padding:"10px 12px",background:T.elevated,borderRadius:8,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:bc(dev.burnout_traj.s5)}}>{dev.burnout_traj.s5}%</div>
-                <div style={{fontSize:8,color:T.muted,marginTop:2}}>Sprint 5 Projected</div>
-              </div>
-              <div style={{flex:1,padding:"10px 12px",background:T.elevated,borderRadius:8,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:bc(dev.burnout_traj.s6)}}>{dev.burnout_traj.s6}%</div>
-                <div style={{fontSize:8,color:T.muted,marginTop:2}}>Sprint 6 Projected</div>
-              </div>
-              <div style={{flex:1,padding:"10px 12px",background:T.elevated,borderRadius:8,textAlign:"center"}}>
-                <div style={{fontSize:18,fontWeight:700,color:dev.burnout_traj.slope>0?T.red:T.green}}>
-                  {dev.burnout_traj.slope>0?"+":""}{dev.burnout_traj.slope}
-                </div>
-                <div style={{fontSize:8,color:T.muted,marginTop:2}}>Commits/Sprint Slope</div>
-              </div>
-            </div>
-          </Card>
+
+          {/* AI Reasoning Section */}
+          <AIReasoning devName={dev.name} />
+
+          {/* Scoring Transparency Breakdown */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+            <Card>
+              <SH icon="★" title="Contribution Breakdown"/>
+              <ScoreBreakdown title="Contribution" items={dev.contribution_breakdown} color={T.indigo} />
+            </Card>
+            <Card>
+              <SH icon="◈" title="Burnout Risk Breakdown"/>
+              <ScoreBreakdown title="Burnout" items={dev.burnout_breakdown} color={bc(dev.burnout)} />
+            </Card>
+          </div>
         </div>
       </div>
+
+      {/* Burnout forecast */}
+      <Card glow={bc(dev.burnout)}>
+        <SH icon="◈" title="Burnout Trajectory Forecast"/>
+        <BurnoutForecast dev={dev}/>
+        <div style={{display:"flex",gap:16,marginTop:16}}>
+          {[
+            {l:"Sprint 5 Projected", v:`${dev.burnout_traj.s5}%`, c:bc(dev.burnout_traj.s5)},
+            {l:"Sprint 6 Projected", v:`${dev.burnout_traj.s6}%`, c:bc(dev.burnout_traj.s6)},
+            {l:"Commits/Sprint Slope", v:`${dev.burnout_traj.slope>0?"+":""}${dev.burnout_traj.slope}`, c:dev.burnout_traj.slope>0?T.red:T.green}
+          ].map(it=>(
+            <div key={it.l} style={{flex:1,padding:"14px 18px",background:T.elevated,borderRadius:12,textAlign:"center",border:`1px solid ${T.border}`}}>
+              <div style={{fontSize:22,fontWeight:900,color:it.c}}>{it.v}</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:4,fontWeight:700,textTransform:"uppercase"}}>{it.l}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
       {/* Flow state + heatmap */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         <Card glow={flowColor}>
