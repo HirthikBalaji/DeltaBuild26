@@ -1,21 +1,97 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 /* ─────────────────────────────────────────────────────────────────
-   DESIGN TOKENS (LIGHT THEME)
+   DESIGN TOKENS — DEEP SPACE TERMINAL (DARK)
+   Palette: obsidian bg · electric cyan accent · neon lime signals
+   Font stack: "Syne" display · "IBM Plex Mono" code/data
 ───────────────────────────────────────────────────────────────── */
 const T = {
-  bg: "#f1f5f9", surface: "#ffffff", elevated: "#e2e8f0", card: "#ffffff",
-  border: "rgba(15, 23, 42, 0.08)", borderHi: "rgba(79, 70, 229, 0.4)",
-  text: "#0f172a", muted: "#334155", dim: "#64748b",
-  indigo: "#4f46e5", indigoLt: "#6366f1",
-  green: "#059669", amber: "#d97706", red: "#dc2626", orange: "#ea580c",
-  teal: "#0d9488", pink: "#db2777", purple: "#7c3aed", sky: "#0284c7",
+  /* backgrounds */
+  bg:       "#080c14",      /* deep obsidian */
+  surface:  "#0d1321",      /* card bg */
+  elevated: "#111827",      /* hover / selected */
+  glass:    "rgba(13,19,33,0.82)",
+
+  /* borders */
+  border:   "rgba(0,255,200,0.08)",
+  borderHi: "rgba(0,255,200,0.35)",
+  borderGlow:"rgba(0,255,200,0.6)",
+
+  /* text */
+  text:   "#e8f4f0",
+  muted:  "#8ba8a0",
+  dim:    "#4a6660",
+
+  /* brand accents */
+  cyan:    "#00ffc8",       /* primary glow */
+  cyanDim: "#00c49a",
+  lime:    "#a3ff5a",       /* positive / success */
+  amber:   "#ffb23f",       /* warning */
+  red:     "#ff4560",       /* danger */
+  orange:  "#ff7c3a",
+  violet:  "#b56cff",       /* special */
+  sky:     "#38bdf8",
+
+  /* keep legacy aliases so existing page code keeps working */
+  indigo:   "#00ffc8",
+  indigoLt: "#00e8b5",
+  green:    "#a3ff5a",
+  teal:     "#00ffc8",
+  pink:     "#ff5fac",
+  purple:   "#b56cff",
 };
-const BASE_FS = 15; // Increased base font size
-const rc = r => ({ critical: T.red, high: T.orange, medium: T.amber, low: T.green }[r] || T.muted);
-const bc = s => s >= 80 ? T.red : s >= 60 ? T.orange : s >= 35 ? T.amber : T.green;
+const BASE_FS = 14;
+const rc = r => ({ critical: T.red, high: T.orange, medium: T.amber, low: T.lime }[r] || T.muted);
+const bc = s => s >= 80 ? T.red : s >= 60 ? T.orange : s >= 35 ? T.amber : T.lime;
 const bl = s => s >= 80 ? "Burnout Risk" : s >= 60 ? "High Workload" : s >= 35 ? "Busy" : "Healthy";
 const fmt = n => typeof n === "number" ? n.toLocaleString() : n;
+
+/* Google Fonts injection */
+if (typeof document !== "undefined" && !document.getElementById("diq-fonts")) {
+  const l = document.createElement("link");
+  l.id   = "diq-fonts";
+  l.rel  = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap";
+  document.head.appendChild(l);
+}
+
+/* Global CSS: scanline overlay + glow keyframes + scrollbar */
+if (typeof document !== "undefined" && !document.getElementById("diq-global-css")) {
+  const s = document.createElement("style");
+  s.id = "diq-global-css";
+  s.textContent = `
+    *, *::before, *::after { box-sizing: border-box; }
+    :root { color-scheme: dark; }
+    body { margin:0; background:${T.bg}; }
+    ::-webkit-scrollbar { width:4px; height:4px; }
+    ::-webkit-scrollbar-track { background:${T.bg}; }
+    ::-webkit-scrollbar-thumb { background:${T.borderHi}; border-radius:4px; }
+    @keyframes diq-pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+    @keyframes diq-glow  { 0%,100%{text-shadow:0 0 8px ${T.cyan}88;} 50%{text-shadow:0 0 22px ${T.cyan},0 0 40px ${T.cyan}44;} }
+    @keyframes diq-scan  { 0%{transform:translateY(-100%);} 100%{transform:translateY(100vh);} }
+    @keyframes diq-fade-up { from{opacity:0;transform:translateY(14px);} to{opacity:1;transform:translateY(0);} }
+    @keyframes diq-slide-in { from{opacity:0;transform:translateX(-18px);} to{opacity:1;transform:translateX(0);} }
+    @keyframes diq-spin { to{transform:rotate(360deg);} }
+    @keyframes diq-flicker { 0%,19.9%,22%,62.9%,64%,64.9%,70%,100%{opacity:1} 20%,21.9%,63%,63.9%,65%,69.9%{opacity:.6} }
+    @keyframes float-y { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+    .diq-card { animation: diq-fade-up .38s ease both; }
+    .diq-card:hover { border-color:${T.borderHi} !important; box-shadow:0 0 28px ${T.cyan}12 !important; }
+    .diq-nav-item { transition:all .15s ease; }
+    .diq-nav-item:hover { background:rgba(0,255,200,0.06) !important; color:${T.cyan} !important; }
+    .diq-btn { transition:all .18s ease; }
+    .diq-btn:hover { box-shadow:0 0 18px ${T.cyan}55; transform:translateY(-1px); }
+    .scanline {
+      pointer-events:none; position:fixed; inset:0; z-index:9999;
+      background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,200,0.015) 2px,rgba(0,255,200,0.015) 4px);
+    }
+    .noise-bg::before {
+      content:''; position:absolute; inset:0; border-radius:inherit;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events:none; z-index:0;
+    }
+  `;
+  document.head.appendChild(s);
+}
 
 /* ─────────────────────────────────────────────────────────────────
    MATH-BASED DNA ENGINE
@@ -114,7 +190,7 @@ function useClock() {
 /* ─────────────────────────────────────────────────────────────────
    ANIMATED COUNTER
 ───────────────────────────────────────────────────────────────── */
-function AnimCounter({ target, duration = 1200, suffix = "", color = T.text }) {
+function AnimCounter({ target, duration = 1200, suffix = "", color = T.cyan }) {
   const [val, setVal] = useState(0);
   useEffect(() => {
     let start = null, raf;
@@ -127,82 +203,128 @@ function AnimCounter({ target, duration = 1200, suffix = "", color = T.text }) {
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [target]);
-  return <span style={{ color }}>{val.toLocaleString()}{suffix}</span>;
+  return <span style={{ color, fontFamily: "'IBM Plex Mono',monospace" }}>{val.toLocaleString()}{suffix}</span>;
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   MICRO COMPONENTS
+   MICRO COMPONENTS — REDESIGNED
 ───────────────────────────────────────────────────────────────── */
 function Card({ children, style = {}, glow }) {
+  const glowColor = glow || T.cyan;
   return (
-    <div style={{
-      background: T.surface, border: `1px solid ${glow ? glow + "33" : T.border}`, borderRadius: 16,
-      padding: "24px 28px", boxShadow: glow ? `0 4px 24px ${glow}14` : "0 2px 12px rgba(0,0,0,0.02)", ...style
+    <div className="diq-card" style={{
+      position: "relative", background: T.surface,
+      border: `1px solid ${glow ? glowColor + "40" : T.border}`,
+      borderRadius: 12,
+      padding: "22px 24px",
+      boxShadow: glow ? `0 0 32px ${glowColor}10, inset 0 1px 0 ${glowColor}15` : `inset 0 1px 0 rgba(255,255,255,0.03)`,
+      overflow: "hidden",
+      ...style
     }}>
+      {/* top-left corner accent */}
+      <div style={{
+        position:"absolute", top:0, left:0, width:28, height:28,
+        borderTop:`2px solid ${glow ? glowColor : T.borderHi}`,
+        borderLeft:`2px solid ${glow ? glowColor : T.borderHi}`,
+        borderRadius:"12px 0 0 0", pointerEvents:"none"
+      }}/>
+      <div style={{
+        position:"absolute", bottom:0, right:0, width:28, height:28,
+        borderBottom:`2px solid ${glow ? glowColor + "50" : T.border}`,
+        borderRight:`2px solid ${glow ? glowColor + "50" : T.border}`,
+        borderRadius:"0 0 12px 0", pointerEvents:"none"
+      }}/>
       {children}
     </div>
   );
 }
-function Tag({ children, color = T.indigo, size = 12 }) {
+
+function Tag({ children, color = T.cyan, size = 11 }) {
   return <span style={{
-    fontSize: size, padding: "4px 12px", borderRadius: 24, background: `${color}1a`,
-    color, border: `1.5px solid ${color}33`, whiteSpace: "nowrap", fontWeight: 600
+    fontFamily:"'IBM Plex Mono',monospace",
+    fontSize: size, padding: "3px 10px", borderRadius: 4,
+    background: `${color}12`, color, border: `1px solid ${color}30`,
+    whiteSpace: "nowrap", fontWeight: 600, letterSpacing:"0.04em"
   }}>{children}</span>;
 }
-function Bar({ value, max = 100, color = T.indigo, h = 6 }) {
+
+function Bar({ value, max = 100, color = T.cyan, h = 5 }) {
+  const pct = Math.min(value / max * 100, 100);
   return (
-    <div style={{ width: "100%", height: h, background: "rgba(0,0,0,0.05)", borderRadius: h }}>
+    <div style={{ width:"100%", height:h, background:"rgba(255,255,255,0.04)", borderRadius:2, overflow:"hidden" }}>
       <div style={{
-        width: `${Math.min(value / max * 100, 100)}%`, height: "100%", background: color, borderRadius: h,
-        transition: "width 0.9s cubic-bezier(0.4,0,0.2,1)"
-      }} />
+        width:`${pct}%`, height:"100%", borderRadius:2,
+        background: `linear-gradient(90deg, ${color}99, ${color})`,
+        boxShadow:`0 0 8px ${color}55`,
+        transition:"width 1s cubic-bezier(0.4,0,0.2,1)"
+      }}/>
     </div>
   );
 }
-function Gauge({ value, size = 90, stroke = 8, color = T.indigo, label }) {
+
+function Gauge({ value, size = 90, stroke = 7, color = T.cyan, label }) {
   const r = (size - stroke) / 2, circ = 2 * Math.PI * r, dash = (value / 100) * circ;
   return (
-    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+    <div style={{ position:"relative", width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} style={{ transform:"rotate(-90deg)" }}>
+        <defs>
+          <filter id={`gauge-glow-${color.replace('#','')}`}>
+            <feGaussianBlur stdDeviation="2" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={stroke}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
           strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
-          style={{ transition: "stroke-dasharray 1.1s cubic-bezier(0.4,0,0.2,1)" }} />
+          filter={`url(#gauge-glow-${color.replace('#','')})`}
+          style={{ transition:"stroke-dasharray 1.1s cubic-bezier(0.4,0,0.2,1)" }}/>
       </svg>
-      <div style={{
-        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center"
-      }}>
-        <span style={{ fontSize: size > 70 ? 18 : 14, fontWeight: 800, color: T.text, lineHeight: 1 }}>{value}</span>
-        {label && <span style={{ fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 3, fontWeight: 700 }}>{label}</span>}
+      <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+        <span style={{ fontSize:size>70?17:13, fontWeight:700, color:T.text, fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{value}</span>
+        {label && <span style={{ fontSize:9, color:T.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginTop:3 }}>{label}</span>}
       </div>
     </div>
   );
 }
-function Sparks({ data, color = T.indigo, height = 32 }) {
+
+function Sparks({ data, color = T.cyan, height = 32 }) {
   const mx = Math.max(...data, 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height }}>
+    <div style={{ display:"flex", alignItems:"flex-end", gap:3, height }}>
       {data.map((v, i) => (
         <div key={i} style={{
-          flex: 1, borderRadius: "3px 3px 0 0",
-          background: i === data.length - 1 ? color : `${color}66`,
-          height: `${(v / mx) * 100}%`, minHeight: 3
-        }} />
+          flex:1, borderRadius:"2px 2px 0 0",
+          background: i===data.length-1 ? color : `${color}50`,
+          boxShadow: i===data.length-1 ? `0 0 6px ${color}` : "none",
+          height:`${(v/mx)*100}%`, minHeight:2,
+          transition:"height 0.6s ease"
+        }}/>
       ))}
     </div>
   );
 }
 function SH({ icon, title, action, onAction }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-      <span style={{ fontSize: 16, color: T.indigo }}>{icon}</span>
-      <span style={{ fontSize: 13, color: T.muted, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700 }}>{title}</span>
-      {action && <button onClick={onAction} style={{
-        marginLeft: "auto", fontSize: 12, color: T.indigoLt,
-        background: "rgba(99,102,241,0.12)", border: `1.5px solid ${T.borderHi}`,
-        borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600
-      }}>{action}</button>}
+    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+      <div style={{
+        width:24, height:24, borderRadius:6, background:`${T.cyan}18`,
+        border:`1px solid ${T.cyan}35`, display:"flex", alignItems:"center", justifyContent:"center",
+        fontSize:12, flexShrink:0
+      }}>{icon}</div>
+      <span style={{
+        fontFamily:"'IBM Plex Mono',monospace",
+        fontSize:10, color:T.cyan, letterSpacing:"0.18em",
+        textTransform:"uppercase", fontWeight:700
+      }}>{title}</span>
+      <div style={{ flex:1, height:1, background:`linear-gradient(90deg,${T.borderHi},transparent)`, marginLeft:6 }}/>
+      {action && (
+        <button onClick={onAction} className="diq-btn" style={{
+          fontFamily:"'IBM Plex Mono',monospace",
+          fontSize:11, color:T.cyan,
+          background:"rgba(0,255,200,0.08)", border:`1px solid ${T.cyan}35`,
+          borderRadius:6, padding:"5px 14px", cursor:"pointer", fontWeight:600, letterSpacing:"0.04em"
+        }}>{action}</button>
+      )}
     </div>
   );
 }
@@ -210,56 +332,69 @@ function SH({ icon, title, action, onAction }) {
 /* ─────────────────────────────────────────────────────────────────
    LIVE PULSE DOT
 ───────────────────────────────────────────────────────────────── */
-function Pulse({ color = T.green }) {
-  const [on, setOn] = useState(true);
-  useEffect(() => { const i = setInterval(() => setOn(x => !x), 1000); return () => clearInterval(i); }, []);
+function Pulse({ color = T.lime }) {
   return (
-    <div style={{ position: "relative", width: 10, height: 10 }}>
+    <div style={{ position:"relative", width:10, height:10, flexShrink:0 }}>
       <div style={{
-        width: 10, height: 10, borderRadius: "50%", background: color,
-        boxShadow: on ? `0 0 10px ${color}` : "none", transition: "box-shadow 0.5s"
-      }} />
+        position:"absolute", inset:-3, borderRadius:"50%",
+        background:`${color}30`, animation:"diq-pulse 1.4s ease infinite"
+      }}/>
+      <div style={{
+        width:10, height:10, borderRadius:"50%", background:color,
+        boxShadow:`0 0 8px ${color}, 0 0 16px ${color}66`
+      }}/>
     </div>
   );
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   LIVE TICKER (simulates real-time events)
+   LIVE TICKER
 ───────────────────────────────────────────────────────────────── */
 const LIVE_EVENTS = [
-  { icon: "⬡", text: "Hirthik pushed 3 commits to auth.py", color: T.indigo, time: 0 },
-  { icon: "⚡", text: "Burnout alert: Hirthik crossed 90% threshold", color: T.red, time: 4000 },
-  { icon: "◈", text: "Anandhappriya commented on DEV-79", color: T.amber, time: 8000 },
-  { icon: "✦", text: "Sprint 4 velocity up 6.9% from Sprint 3", color: T.green, time: 12000 },
-  { icon: "▲", text: "LapTop has 18 open tasks — backlog growing", color: T.orange, time: 16000 },
-  { icon: "⬢", text: "New dependency detected: LapTop → Hirthik (auth.py)", color: T.purple, time: 20000 },
-  { icon: "⬡", text: "Anandhappriya pushed to performance.py", color: T.indigo, time: 24000 },
-  { icon: "◉", text: "Code entropy rising in wallet.py (2.17 → high)", color: T.orange, time: 28000 },
+  { prefix: "COMMIT", text: "Hirthik pushed 3 commits to auth.py", color: T.cyan },
+  { prefix: "ALERT ", text: "Burnout threshold exceeded — Hirthik 90%", color: T.red },
+  { prefix: "JIRA  ", text: "Anandhappriya commented on DEV-79", color: T.amber },
+  { prefix: "SPRINT", text: "Velocity +6.9% from S3 → S4", color: T.lime },
+  { prefix: "BACKLO", text: "LapTop: 18 open tasks — growing", color: T.orange },
+  { prefix: "GRAPH ", text: "New edge: LapTop → Hirthik (auth.py)", color: T.violet },
+  { prefix: "COMMIT", text: "Anandhappriya pushed to performance.py", color: T.cyan },
+  { prefix: "ENTROP", text: "wallet.py entropy rising 2.17 → HIGH", color: T.orange },
 ];
 function LiveFeed() {
-  const [events, setEvents] = useState([LIVE_EVENTS[0]]);
+  const [events, setEvents] = useState([{ ...LIVE_EVENTS[0], id: 0 }]);
   const [idx, setIdx] = useState(1);
   useEffect(() => {
     const i = setInterval(() => {
       setIdx(x => {
         const next = x % LIVE_EVENTS.length;
-        setEvents(ev => [{ ...LIVE_EVENTS[next], id: Date.now() }, ...ev].slice(0, 6));
+        setEvents(ev => [{ ...LIVE_EVENTS[next], id: Date.now() }, ...ev].slice(0, 5));
         return next + 1;
       });
-    }, 4000);
+    }, 3800);
     return () => clearInterval(i);
   }, []);
+  const now = new Date();
+  const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
       {events.map((e, i) => (
-        <div key={e.id || i} style={{
-          display: "flex", alignItems: "center", gap: 12, padding: "10px 16px",
-          background: T.elevated, borderRadius: 12, border: `1px solid ${e.color}22`,
-          opacity: 1 - i * 0.12, transform: `scale(${1 - i * 0.01})`, transition: "all 0.4s"
+        <div key={e.id} style={{
+          display:"flex", alignItems:"center", gap:10, padding:"8px 12px",
+          background: i===0 ? `${e.color}08` : "transparent",
+          borderLeft:`2px solid ${i===0 ? e.color : T.border}`,
+          borderRadius:"0 6px 6px 0",
+          opacity: 1 - i * 0.18,
+          transition:"all 0.4s ease",
+          animation: i===0 ? "diq-fade-up 0.3s ease" : "none"
         }}>
-          <span style={{ color: e.color, fontSize: 14, flexShrink: 0 }}>{e.icon}</span>
-          <span style={{ fontSize: 13, color: T.muted, flex: 1, fontWeight: 500 }}>{e.text}</span>
-          <span style={{ fontSize: 11, color: T.dim, flexShrink: 0 }}>just now</span>
+          <span style={{
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+            color:e.color, fontWeight:700, letterSpacing:"0.06em", flexShrink:0, minWidth:46
+          }}>{e.prefix}</span>
+          <span style={{ fontSize:12, color: i===0 ? T.text : T.muted, flex:1 }}>{e.text}</span>
+          <span style={{
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:T.dim, flexShrink:0
+          }}>{i===0 ? ts : "—"}</span>
         </div>
       ))}
     </div>
@@ -6765,12 +6900,6 @@ Answer the question based on the data above. Be concise, use plain text. No JSON
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   SLACK INTELLIGENCE PAGE
-═════════════════════════════════════════════════════════════════ */
-const SENTIMENT_COLOR = { positive: "#059669", negative: "#dc2626", neutral: "#64748b" };
-const SENTIMENT_ICON  = { positive: "↑", negative: "↓", neutral: "→" };
-
 function SlackPage({ data }) {
   const [localSlack, setLocalSlack] = useState(null);
   const slack = localSlack ?? data.slack;
@@ -7037,6 +7166,8 @@ function SlackPage({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
+
+/* ─────────────────────────────────────────────────────────────────
    ROOT SHELL
 ═════════════════════════════════════════════════════════════════ */
 const PAGES = [
@@ -7069,9 +7200,9 @@ function FloatingParticle({ delay = 0, size = 10, left = "50%", top = "50%" }) {
   return (
     <div style={{
       position: "absolute", left, top, width: size, height: size,
-      background: `linear-gradient(135deg, ${T.indigo}44, ${T.teal}44)`,
-      borderRadius: "50%", filter: "blur(4px)",
-      animation: `float ${10 + Math.random() * 10}s infinite ease-in-out`,
+      background: `radial-gradient(circle, ${T.cyan}60, transparent)`,
+      borderRadius: "50%", filter: "blur(2px)",
+      animation: `float-y ${8 + delay * 2}s infinite ease-in-out`,
       animationDelay: `${delay}s`, pointerEvents: "none", zIndex: 0
     }} />
   );
@@ -7082,194 +7213,214 @@ function SignInPage({ onSignIn }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [bootLines, setBootLines] = useState([]);
+
+  const BOOT_SEQ = [
+    "> DEVIQ KERNEL v3.0.0 LOADING...",
+    "> CONNECTING TO LIVE DATA STREAMS...",
+    "> GITHUB + JIRA + SLACK INTEGRATIONS: OK",
+    "> AI DNA ENGINE: ONLINE",
+    "> ZK PROOF CIRCUITS: INITIALIZED",
+    "> AWAITING OPERATOR AUTHENTICATION",
+  ];
+
+  useEffect(() => {
+    let i = 0;
+    const t = setInterval(() => {
+      if (i < BOOT_SEQ.length) { setBootLines(b => [...b, BOOT_SEQ[i]]); i++; }
+      else clearInterval(t);
+    }, 340);
+    return () => clearInterval(t);
+  }, []);
 
   const handleSignIn = (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setError("");
     setTimeout(() => {
       if (email === "hirthikbalaji2006@gmail.com" && password === "123456") {
         onSignIn();
       } else {
-        setError("Invalid credentials. Please check your access key.");
+        setError("ACCESS DENIED — Invalid credentials");
         setIsSubmitting(false);
       }
-    }, 800);
+    }, 900);
   };
 
   return (
     <div style={{
-      height: "100vh", width: "100vw", display: "flex", alignItems: "center", justifyContent: "center",
-      background: `radial-gradient(circle at 50% 50%, #f8fafc 0%, ${T.bg} 100%)`,
-      fontFamily: "inherit", overflow: "hidden", position: "relative"
+      height:"100vh", width:"100vw",
+      background: T.bg,
+      display:"flex", alignItems:"center", justifyContent:"center",
+      fontFamily:"'IBM Plex Mono',monospace", overflow:"hidden", position:"relative"
     }}>
-      {/* Dynamic Background Elements */}
+      {/* Scanline */}
+      <div className="scanline"/>
+
+      {/* Grid bg */}
       <div style={{
-        position: "absolute", inset: 0, opacity: 0.4,
-        backgroundImage: `linear-gradient(${T.border} 1.5px, transparent 1.5px), linear-gradient(90deg, ${T.border} 1.5px, transparent 1.5px)`,
-        backgroundSize: "60px 60px", transform: "perspective(1000px) rotateX(60deg) translateY(-100px)",
-        transformOrigin: "top", animation: "grid-scroll 20s linear infinite"
-      }} />
+        position:"absolute", inset:0, opacity:0.15,
+        backgroundImage:`linear-gradient(${T.border} 1px,transparent 1px),linear-gradient(90deg,${T.border} 1px,transparent 1px)`,
+        backgroundSize:"48px 48px"
+      }}/>
 
-      {/* Floating Blobs for Depth */}
-      <div style={{ position: "absolute", top: "10%", left: "15%", width: 400, height: 400, background: `${T.indigo}11`, filter: "blur(100px)", borderRadius: "50%", animation: "pulse 15s infinite alternate" }} />
-      <div style={{ position: "absolute", bottom: "10%", right: "15%", width: 500, height: 500, background: `${T.teal}08`, filter: "blur(120px)", borderRadius: "50%", animation: "pulse 12s infinite alternate-reverse" }} />
+      {/* Glow orbs */}
+      <div style={{ position:"absolute", top:"15%", left:"12%", width:500, height:500, background:`${T.cyan}08`, filter:"blur(120px)", borderRadius:"50%", animation:"diq-pulse 6s ease infinite" }}/>
+      <div style={{ position:"absolute", bottom:"10%", right:"10%", width:400, height:400, background:`${T.violet}08`, filter:"blur(100px)", borderRadius:"50%", animation:"diq-pulse 8s ease infinite reverse" }}/>
 
-      {/* Scattered Particles */}
-      <FloatingParticle left="10%" top="20%" size={120} delay={0} />
-      <FloatingParticle left="80%" top="15%" size={80} delay={2} />
-      <FloatingParticle left="75%" top="70%" size={150} delay={5} />
-      <FloatingParticle left="20%" top="80%" size={100} delay={3} />
+      <FloatingParticle left="8%" top="25%" size={6} delay={0}/>
+      <FloatingParticle left="85%" top="20%" size={4} delay={1.5}/>
+      <FloatingParticle left="90%" top="65%" size={8} delay={3}/>
+      <FloatingParticle left="15%" top="75%" size={5} delay={2}/>
+      <FloatingParticle left="50%" top="10%" size={5} delay={4}/>
 
-      <Card style={{
-        width: 420, padding: "48px 40px", position: "relative", zIndex: 10,
-        background: "rgba(255, 255, 255, 0.7)", backdropFilter: "blur(20px)",
-        border: `1.5px solid rgba(255, 255, 255, 0.4)`,
-        boxShadow: "0 20px 50px rgba(0,0,0,0.05), inset 0 0 0 1px rgba(255,255,255,0.5)",
-        borderRadius: 24, transform: "translateY(0)", animation: "fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1)"
+      <div style={{
+        position:"relative", zIndex:10,
+        display:"flex", gap:48, alignItems:"center",
+        maxWidth:900, width:"100%", padding:"0 24px"
       }}>
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ position: "relative", width: 64, height: 64, margin: "0 auto 20px" }}>
-            <div style={{
-              position: "absolute", inset: -8, borderRadius: 18,
-              background: `linear-gradient(135deg, ${T.indigo}, ${T.purple})`,
-              opacity: 0.3, filter: "blur(12px)", animation: "pulse 3s infinite"
-            }} />
-            <div style={{
-              position: "relative", width: "100%", height: "100%", borderRadius: 16,
-              background: `linear-gradient(135deg, ${T.indigo}, #7c3aed)`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 32, fontWeight: 950, color: "#fff",
-              boxShadow: `0 8px 24px ${T.indigo}55`
-            }}>D</div>
-          </div>
-          <h2 style={{ fontSize: 28, fontWeight: 900, color: T.text, margin: 0, letterSpacing: "-0.04em" }}>DevIQ Intelligence</h2>
-          <p style={{ fontSize: 14, color: T.muted, marginTop: 10, fontWeight: 500 }}>Unlock the DNA of your engineering team</p>
-        </div>
 
-        <form onSubmit={handleSignIn} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontSize: 11, fontWeight: 800, color: T.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>Neural ID / Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="hirthikbalaji2006@gmail.com"
-              style={{
-                padding: "14px 18px", borderRadius: 12, border: `1.5px solid ${T.border}`,
-                background: "rgba(255,255,255,0.5)", color: T.text, fontSize: 15, outline: "none",
-                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)", boxSizing: "border-box",
-                fontWeight: 500
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = T.indigo;
-                e.target.style.background = "#fff";
-                e.target.style.boxShadow = `0 0 0 4px ${T.indigo}11`;
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = T.border;
-                e.target.style.background = "rgba(255,255,255,0.5)";
-                e.target.style.boxShadow = "none";
-              }}
-            />
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <label style={{ fontSize: 11, fontWeight: 800, color: T.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>Access Key</label>
-              <span style={{ fontSize: 11, color: T.indigoLt, fontWeight: 700, cursor: "pointer" }}>Recover Key?</span>
-            </div>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              style={{
-                padding: "14px 18px", borderRadius: 12, border: `1.5px solid ${T.border}`,
-                background: "rgba(255,255,255,0.5)", color: T.text, fontSize: 15, outline: "none",
-                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)", boxSizing: "border-box"
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = T.indigo;
-                e.target.style.background = "#fff";
-                e.target.style.boxShadow = `0 0 0 4px ${T.indigo}11`;
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = T.border;
-                e.target.style.background = "rgba(255,255,255,0.5)";
-                e.target.style.boxShadow = "none";
-              }}
-            />
-          </div>
-
-          {error && (
+        {/* Left: boot terminal */}
+        <div style={{ flex:1, display:"flex", flexDirection:"column", gap:16 }}>
+          {/* Logo */}
+          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:8 }}>
             <div style={{
-              color: T.red, fontSize: 13, fontWeight: 600, padding: "10px 14px",
-              background: `${T.red}0f`, borderRadius: 10, border: `1px solid ${T.red}22`,
-              animation: "shake 0.4s cubic-bezier(.36,.07,.19,.97) both"
+              width:44, height:44, borderRadius:10,
+              background:`linear-gradient(135deg,${T.cyan}20,${T.violet}20)`,
+              border:`2px solid ${T.cyan}50`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              boxShadow:`0 0 30px ${T.cyan}30`
             }}>
-              ⚠️ {error}
+              <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
+                <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
+                <polygon points="8,4 12,6.5 12,9.5 8,12 4,9.5 4,6.5" fill={`${T.cyan}30`} stroke={T.cyan} strokeWidth="0.8"/>
+                <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
+              </svg>
             </div>
-          )}
+            <div>
+              <div style={{
+                fontFamily:"'Syne',sans-serif", fontSize:26, fontWeight:900,
+                color:T.text, letterSpacing:"-0.02em",
+                textShadow:`0 0 30px ${T.cyan}40`
+              }}>DevIQ</div>
+              <div style={{ fontSize:9, color:T.cyan, letterSpacing:"0.22em", fontWeight:700 }}>AI DEVELOPER INTELLIGENCE</div>
+            </div>
+          </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            style={{
-              padding: "16px", borderRadius: 14,
-              background: isSubmitting ? T.dim : `linear-gradient(135deg, ${T.indigo}, ${T.indigoLt})`,
-              color: "#fff", border: "none", fontSize: 16, fontWeight: 800, cursor: isSubmitting ? "default" : "pointer",
-              marginTop: 10, boxShadow: `0 8px 24px ${T.indigo}44`,
-              transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
-              position: "relative", overflow: "hidden"
-            }}
-            onMouseEnter={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(-2px)"; }}
-            onMouseLeave={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(0)"; }}
-            onMouseDown={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(1px) scale(0.98)"; }}
-            onMouseUp={(e) => { if (!isSubmitting) e.target.style.transform = "translateY(-2px) scale(1)"; }}
-          >
-            {isSubmitting ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                <Pulse color="#fff" />
-                <span>Authenticating...</span>
+          <div style={{ fontSize:13, color:T.muted, lineHeight:1.7, maxWidth:340 }}>
+            Full-stack engineering intelligence. Real-time burnout detection, code entropy, ZK proofs, Slack signals, and AI DNA profiles.
+          </div>
+
+          {/* Boot terminal */}
+          <div style={{
+            background:`${T.surface}`, border:`1px solid ${T.borderHi}`,
+            borderRadius:8, padding:"16px 18px",
+            boxShadow:`0 0 24px ${T.cyan}10`
+          }}>
+            <div style={{ fontSize:9, color:T.cyan, letterSpacing:"0.18em", marginBottom:10, fontWeight:700 }}>SYSTEM BOOT LOG</div>
+            {bootLines.map((l, i) => (
+              <div key={i} style={{
+                fontSize:10, color: i===bootLines.length-1 ? T.lime : T.muted,
+                marginBottom:4, animation:"diq-fade-up 0.2s ease",
+                display:"flex", gap:6
+              }}>
+                <span style={{ color:T.cyan, flexShrink:0 }}>$</span>
+                <span>{l}</span>
               </div>
-            ) : "Initialize System →"}
-          </button>
-        </form>
-
-        <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${T.border}`, textAlign: "center" }}>
-          <p style={{ fontSize: 12, color: T.dim, fontWeight: 600 }}>
-            Restricted Access · DevIQ Protocol v2.6.2
-          </p>
+            ))}
+            {bootLines.length === BOOT_SEQ.length && (
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6 }}>
+                <Pulse color={T.lime}/>
+                <span style={{ fontSize:10, color:T.lime, animation:"diq-glow 1.5s ease infinite" }}>READY</span>
+              </div>
+            )}
+          </div>
         </div>
-      </Card>
 
-      <style>{`
-        @keyframes grid-scroll {
-          0% { background-position: 0 0; }
-          100% { background-position: 0 60px; }
-        }
-        @keyframes float {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 40px) scale(0.9); }
-        }
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 0.3; }
-          50% { transform: scale(1.1); opacity: 0.5; }
-        }
-        @keyframes fade-up {
-          from { opacity: 0; transform: translateY(30px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes shake {
-          10%, 90% { transform: translate3d(-1px, 0, 0); }
-          20%, 80% { transform: translate3d(2px, 0, 0); }
-          30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-          40%, 60% { transform: translate3d(4px, 0, 0); }
-        }
-      `}</style>
+        {/* Right: login form */}
+        <div style={{
+          width:360, background:T.surface,
+          border:`1px solid ${T.borderHi}`,
+          borderRadius:14, padding:"36px 32px",
+          boxShadow:`0 0 60px ${T.cyan}12, 0 0 0 1px ${T.border}`,
+          position:"relative", overflow:"hidden",
+          animation:"diq-fade-up 0.6s ease"
+        }}>
+          {/* Corner accents */}
+          <div style={{ position:"absolute", top:0, left:0, width:32, height:32, borderTop:`2px solid ${T.cyan}`, borderLeft:`2px solid ${T.cyan}`, borderRadius:"14px 0 0 0" }}/>
+          <div style={{ position:"absolute", bottom:0, right:0, width:32, height:32, borderBottom:`2px solid ${T.cyan}50`, borderRight:`2px solid ${T.cyan}50`, borderRadius:"0 0 14px 0" }}/>
+
+          <div style={{ marginBottom:28 }}>
+            <div style={{ fontSize:9, color:T.dim, letterSpacing:"0.18em", fontWeight:700, marginBottom:6 }}>AUTHENTICATION REQUIRED</div>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:800, color:T.text }}>Operator Login</div>
+          </div>
+
+          <form onSubmit={handleSignIn} style={{ display:"flex", flexDirection:"column", gap:18 }}>
+            <div>
+              <div style={{ fontSize:9, color:T.cyan, letterSpacing:"0.16em", fontWeight:700, marginBottom:8 }}>NEURAL ID</div>
+              <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+                placeholder="operator@deviq.io"
+                style={{
+                  width:"100%", padding:"11px 14px", borderRadius:6,
+                  background:`${T.elevated}`, color:T.text, fontSize:12,
+                  border:`1px solid ${T.border}`, outline:"none",
+                  fontFamily:"'IBM Plex Mono',monospace", boxSizing:"border-box",
+                  transition:"border-color 0.15s, box-shadow 0.15s"
+                }}
+                onFocus={e=>{e.target.style.borderColor=T.cyan;e.target.style.boxShadow=`0 0 0 3px ${T.cyan}18`;}}
+                onBlur={e=>{e.target.style.borderColor=T.border;e.target.style.boxShadow="none";}}
+              />
+            </div>
+
+            <div>
+              <div style={{ fontSize:9, color:T.cyan, letterSpacing:"0.16em", fontWeight:700, marginBottom:8 }}>ACCESS KEY</div>
+              <input type="password" required value={password} onChange={e=>setPassword(e.target.value)}
+                placeholder="••••••••"
+                style={{
+                  width:"100%", padding:"11px 14px", borderRadius:6,
+                  background:`${T.elevated}`, color:T.text, fontSize:14,
+                  border:`1px solid ${T.border}`, outline:"none",
+                  fontFamily:"'IBM Plex Mono',monospace", boxSizing:"border-box",
+                  transition:"border-color 0.15s, box-shadow 0.15s"
+                }}
+                onFocus={e=>{e.target.style.borderColor=T.cyan;e.target.style.boxShadow=`0 0 0 3px ${T.cyan}18`;}}
+                onBlur={e=>{e.target.style.borderColor=T.border;e.target.style.boxShadow="none";}}
+              />
+            </div>
+
+            {error && (
+              <div style={{
+                padding:"10px 12px", borderRadius:6,
+                background:`${T.red}12`, border:`1px solid ${T.red}35`,
+                color:T.red, fontSize:11, letterSpacing:"0.04em"
+              }}>⚠ {error}</div>
+            )}
+
+            <button type="submit" disabled={isSubmitting} className="diq-btn" style={{
+              padding:"13px", borderRadius:8,
+              background: isSubmitting ? `${T.cyan}20` : `linear-gradient(135deg,${T.cyan}25,${T.violet}25)`,
+              border:`1.5px solid ${isSubmitting ? T.cyan+"40" : T.cyan}`,
+              color: isSubmitting ? T.muted : T.cyan,
+              fontSize:12, fontFamily:"'IBM Plex Mono',monospace",
+              fontWeight:700, letterSpacing:"0.14em",
+              cursor: isSubmitting ? "wait" : "pointer",
+              textTransform:"uppercase",
+              boxShadow: isSubmitting ? "none" : `0 0 20px ${T.cyan}20`
+            }}>
+              {isSubmitting ? (
+                <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                  <span style={{ animation:"diq-spin 1s linear infinite", display:"inline-block" }}>◈</span>
+                  AUTHENTICATING...
+                </span>
+              ) : "INITIALIZE SESSION →"}
+            </button>
+          </form>
+
+          <div style={{ marginTop:22, paddingTop:16, borderTop:`1px solid ${T.border}`, textAlign:"center" }}>
+            <span style={{ fontSize:9, color:T.dim, letterSpacing:"0.12em" }}>DEVIQ PROTOCOL v3.0.0 · RESTRICTED ACCESS</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -7280,12 +7431,31 @@ export default function DevIQ() {
   const [page, setPage] = useState("overview");
   const [selDev, setSelDev] = useState(null);
   const [ready, setReady] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const time = useClock();
-  useEffect(() => { const t = setTimeout(() => setReady(true), 60); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(() => setReady(true), 80); return () => clearTimeout(t); }, []);
   const navigate = useCallback(p => { setPage(p); setSelDev(null); }, []);
   const timeStr = time.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-  if (loading) return <div style={{ background: T.bg, color: T.text, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading dynamic intelligence...</div>;
+  if (loading) return (
+    <div style={{
+      background:T.bg, height:"100vh", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center", gap:20,
+      fontFamily:"'IBM Plex Mono',monospace"
+    }}>
+      <div style={{ fontSize:32, color:T.cyan, animation:"diq-glow 2s ease infinite" }}>◈</div>
+      <div style={{ fontSize:13, color:T.cyan, letterSpacing:"0.2em" }}>INITIALIZING DEVIQ</div>
+      <div style={{
+        width:200, height:2, background:`${T.border}`, borderRadius:2, overflow:"hidden"
+      }}>
+        <div style={{
+          height:"100%", background:`linear-gradient(90deg,${T.cyan},${T.lime})`,
+          animation:"diq-scan 1.6s linear infinite", borderRadius:2
+        }}/>
+      </div>
+      <div style={{ fontSize:10, color:T.dim, letterSpacing:"0.15em" }}>CONNECTING TO LIVE DATA STREAM</div>
+    </div>
+  );
 
   if (!isAuthenticated) return <SignInPage onSignIn={() => setIsAuthenticated(true)} />;
 
@@ -7298,41 +7468,90 @@ export default function DevIQ() {
 
   const context = { devs, fileData, deps, tickets, slack, TOTAL_COMMITS, TOTAL_LINES, AT_RISK, AVG_CONTRIB, AVG_BURNOUT };
 
+  const currentPage = PAGES.find(p => p.id === page);
+
   return (
     <div style={{
-      fontFamily: "'SF Mono','Fira Code','JetBrains Mono',monospace",
+      fontFamily: "'IBM Plex Mono','Fira Code',monospace",
       background: T.bg, minHeight: "100vh", color: T.text,
       fontSize: BASE_FS,
       display: "flex", overflow: "hidden",
-      opacity: ready ? 1 : 0, transition: "opacity 0.35s ease"
+      opacity: ready ? 1 : 0, transition: "opacity 0.4s ease"
     }}>
+      {/* Scanline overlay */}
+      <div className="scanline"/>
 
       {/* SIDEBAR */}
       <aside style={{
-        width: 280, background: T.surface, borderRight: `1px solid ${T.border}`,
-        display: "flex", flexDirection: "column", flexShrink: 0, boxShadow: "2px 0 10px rgba(0,0,0,0.01)"
+        width: sidebarCollapsed ? 60 : 248,
+        background: T.surface,
+        borderRight: `1px solid ${T.border}`,
+        display: "flex", flexDirection: "column", flexShrink: 0,
+        transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
+        overflow: "hidden",
+        boxShadow: `4px 0 40px rgba(0,0,0,0.4), 1px 0 0 ${T.borderHi}`
       }}>
         {/* Logo */}
-        <div style={{ padding: "28px 24px 22px", borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: 10,
-              background: `linear-gradient(135deg,${T.indigo},#7c3aed)`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 18, fontWeight: 900, color: "#fff", boxShadow: `0 4px 12px ${T.indigo}44`
-            }}>D</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.03em" }}>DevIQ</div>
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-              <Pulse color={T.green} />
-              <span style={{ fontSize: 10, color: T.green, letterSpacing: "0.12em", fontWeight: 800 }}>LIVE</span>
+        <div style={{
+          padding: sidebarCollapsed ? "20px 0" : "20px 18px",
+          borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center",
+          justifyContent: sidebarCollapsed ? "center" : "space-between",
+          gap: 10, flexShrink: 0
+        }}>
+          {!sidebarCollapsed && (
+            <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
+              {/* Logo mark */}
+              <div style={{
+                width:32, height:32, borderRadius:8, flexShrink:0,
+                background:`linear-gradient(135deg,${T.cyan}22,${T.violet}22)`,
+                border:`1.5px solid ${T.cyan}50`,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                boxShadow:`0 0 18px ${T.cyan}30`
+              }}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
+                  <polygon points="8,4 12,6.5 12,9.5 8,12 4,9.5 4,6.5" fill={`${T.cyan}30`} stroke={T.cyan} strokeWidth="0.8"/>
+                  <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
+                </svg>
+              </div>
+              <div>
+                <div style={{
+                  fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:900,
+                  color:T.text, letterSpacing:"-0.02em", lineHeight:1
+                }}>DevIQ</div>
+                <div style={{ fontSize:8, color:T.cyan, letterSpacing:"0.18em", fontWeight:700, marginTop:1 }}>AI INTELLIGENCE</div>
+              </div>
+              <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5 }}>
+                <Pulse color={T.lime}/>
+                <span style={{ fontSize:8, color:T.lime, letterSpacing:"0.15em", fontWeight:700 }}>LIVE</span>
+              </div>
             </div>
-          </div>
-          <div style={{ fontSize: 10, color: T.dim, letterSpacing: "0.16em", fontWeight: 700 }}>AI DEVELOPER INTELLIGENCE</div>
+          )}
+          {sidebarCollapsed && (
+            <div style={{
+              width:32, height:32, borderRadius:8,
+              background:`linear-gradient(135deg,${T.cyan}22,${T.violet}22)`,
+              border:`1.5px solid ${T.cyan}50`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              boxShadow:`0 0 18px ${T.cyan}30`
+            }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
+                <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
+              </svg>
+            </div>
+          )}
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: "18px 14px", overflowY: "auto" }}>
-          <div style={{ fontSize: 10, color: T.dim, letterSpacing: "0.18em", padding: "0 12px", marginBottom: 12, fontWeight: 800 }}>NAVIGATION</div>
+        <nav style={{ flex:1, padding: sidebarCollapsed ? "12px 8px" : "12px 10px", overflowY:"auto" }}>
+          {!sidebarCollapsed && (
+            <div style={{
+              fontSize:8, color:T.dim, letterSpacing:"0.22em",
+              padding:"0 8px", marginBottom:10, fontWeight:700
+            }}>MODULES</div>
+          )}
           {PAGES.map(p => {
             const active = page === p.id || (page === "profile" && p.id === "leaderboard");
             let badgeCount = 0;
@@ -7340,92 +7559,139 @@ export default function DevIQ() {
             if (p.id === 'code') badgeCount = fileData.filter(f => f.risk >= 75).length;
 
             return (
-              <div key={p.id} onClick={() => navigate(p.id)}
+              <div key={p.id} className="diq-nav-item" onClick={() => navigate(p.id)}
+                title={sidebarCollapsed ? p.label : ""}
                 style={{
-                  display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
-                  cursor: "pointer", marginBottom: 6, fontSize: 13, letterSpacing: "0.01em", userSelect: "none",
-                  background: active ? "rgba(99,102,241,0.16)" : "transparent",
-                  color: active ? T.indigoLt : T.muted,
-                  border: active ? `1.5px solid ${T.borderHi}` : "1.5px solid transparent",
-                  transition: "all 0.15s ease", fontWeight: active ? 700 : 500
+                  display:"flex", alignItems:"center",
+                  gap: sidebarCollapsed ? 0 : 10,
+                  justifyContent: sidebarCollapsed ? "center" : "flex-start",
+                  padding: sidebarCollapsed ? "10px 0" : "9px 10px",
+                  borderRadius:8, cursor:"pointer", marginBottom:2,
+                  fontSize:12, userSelect:"none",
+                  background: active ? `${T.cyan}12` : "transparent",
+                  color: active ? T.cyan : T.muted,
+                  borderLeft: active ? `2px solid ${T.cyan}` : "2px solid transparent",
+                  fontWeight: active ? 600 : 400,
                 }}>
-                <span style={{ fontSize: 16 }}>{p.icon}</span>
-                <span style={{ flex: 1 }}>{p.label}</span>
-                {badgeCount > 0 && (
+                <span style={{ fontSize:14, flexShrink:0 }}>{p.icon}</span>
+                {!sidebarCollapsed && <span style={{ flex:1, fontSize:11 }}>{p.label}</span>}
+                {!sidebarCollapsed && badgeCount > 0 && (
                   <span style={{
-                    fontSize: 10, padding: "3px 7px", borderRadius: 6,
-                    background: "rgba(239,68,68,0.2)", color: T.red, border: "1px solid rgba(239,68,68,0.3)", fontWeight: 800
-                  }}>
-                    {badgeCount}
-                  </span>
+                    fontFamily:"'IBM Plex Mono',monospace",
+                    fontSize:9, padding:"2px 6px", borderRadius:3,
+                    background:`${T.red}20`, color:T.red,
+                    border:`1px solid ${T.red}35`, fontWeight:700
+                  }}>{badgeCount}</span>
                 )}
               </div>
             );
           })}
         </nav>
 
-        {/* New features badge */}
-        <div style={{ padding: "16px 18px", borderTop: `1px solid ${T.border}` }}>
-          <div style={{
-            background: "rgba(20,184,166,0.08)", border: "1.5px solid rgba(20,184,166,0.25)",
-            borderRadius: 12, padding: "14px 16px", marginBottom: 14
-          }}>
-            <div style={{ fontSize: 11, color: T.teal, fontWeight: 800, marginBottom: 8, letterSpacing: "0.05em" }}>★ NEW FEATURES</div>
-            {["Flow State Detection", "Code Entropy Index", "Bus Factor Analysis", "Psych Safety Proxy", "Dep. Graph", "Burnout Forecast", "Ticket Risk Score", "Rebalancing AI"].map(f => (
-              <div key={f} style={{ fontSize: 10, color: "#0d6e6e", display: "flex", alignItems: "center", gap: 6, marginBottom: 4, fontWeight: 500 }}>
-                <div style={{ width: 5, height: 5, borderRadius: "50%", background: T.teal, flexShrink: 0 }} />
-                {f}
+        {/* Footer stats */}
+        {!sidebarCollapsed && (
+          <div style={{ padding:"14px 16px", borderTop:`1px solid ${T.border}`, flexShrink:0 }}>
+            <div style={{
+              background:`${T.cyan}08`, border:`1px solid ${T.cyan}20`,
+              borderRadius:8, padding:"12px 14px"
+            }}>
+              <div style={{ fontSize:8, color:T.cyan, fontWeight:700, letterSpacing:"0.16em", marginBottom:8 }}>LIVE METRICS</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {[
+                  { l:"COMMITS", v:TOTAL_COMMITS, c:T.cyan },
+                  { l:"ISSUES", v:tickets.length, c:T.lime },
+                  { l:"DEVS", v:devs.length, c:T.violet },
+                  { l:"AT RISK", v:AT_RISK, c:T.red },
+                ].map(m => (
+                  <div key={m.l}>
+                    <div style={{ fontSize:7, color:T.dim, fontWeight:700, letterSpacing:"0.12em" }}>{m.l}</div>
+                    <div style={{ fontSize:16, fontWeight:700, color:m.c, lineHeight:1.2 }}>{m.v}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div style={{
-            background: "rgba(16,185,129,0.08)", border: "1.5px solid rgba(16,185,129,0.22)",
-            borderRadius: 12, padding: "14px 16px"
-          }}>
-            <div style={{ fontSize: 11, color: T.green, fontWeight: 800, marginBottom: 6, letterSpacing: "0.05em" }}>✓ Real Data</div>
-            <div style={{ fontSize: 10, color: "#065f46", lineHeight: 1.7, fontWeight: 600 }}>
-              {TOTAL_COMMITS} commits · {tickets.length} issues<br />{devs.reduce((a, d) => a + d.jira.comments, 0)} comments · {devs.length} devs
             </div>
+            {/* Collapse toggle */}
+            <button onClick={() => setSidebarCollapsed(true)} style={{
+              width:"100%", marginTop:10,
+              background:"transparent", border:`1px solid ${T.border}`,
+              borderRadius:6, padding:"6px", cursor:"pointer",
+              color:T.dim, fontSize:10, fontFamily:"inherit", letterSpacing:"0.1em"
+            }}>← COLLAPSE</button>
           </div>
-        </div>
+        )}
+        {sidebarCollapsed && (
+          <div style={{ padding:"10px 0", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"center" }}>
+            <button onClick={() => setSidebarCollapsed(false)} style={{
+              background:"transparent", border:`1px solid ${T.border}`,
+              borderRadius:6, padding:"6px 10px", cursor:"pointer",
+              color:T.dim, fontSize:11, fontFamily:"inherit"
+            }}>→</button>
+          </div>
+        )}
       </aside>
 
-      {/* MAIN */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Topbar */}
+      {/* MAIN AREA */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
+
+        {/* TOPBAR */}
         <header style={{
-          height: 64, background: T.surface, borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", padding: "0 28px", gap: 16, flexShrink: 0, boxShadow: "0 2px 10px rgba(0,0,0,0.01)"
+          height:54, background:`${T.surface}ee`,
+          backdropFilter:"blur(12px)",
+          borderBottom:`1px solid ${T.border}`,
+          display:"flex", alignItems:"center", padding:"0 24px", gap:16, flexShrink:0,
+          boxShadow:`0 1px 0 ${T.borderHi}`
         }}>
-          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 18, fontWeight: 800, color: T.text }}>
-              {page === "profile" && selDev ? selDev.name : PAGES.find(p => p.id === page)?.label || "Overview"}
+          {/* Breadcrumb */}
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:9, color:T.dim, fontWeight:700, letterSpacing:"0.14em" }}>DEVIQ</span>
+            <span style={{ color:T.border, fontSize:12 }}>/</span>
+            <span style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, color:T.text }}>
+              {page === "profile" && selDev ? selDev.name : currentPage?.label || "Overview"}
             </span>
+            {page === "profile" && selDev && (
+              <Tag color={T.violet}>{selDev.role}</Tag>
+            )}
           </div>
+
+          {/* Spacer */}
+          <div style={{ flex:1 }}/>
+
+          {/* Clock */}
           <div style={{
-            display: "flex", gap: 8, alignItems: "center", padding: "6px 14px",
-            background: "rgba(16,185,129,0.1)", border: `1.5px solid ${T.green}25`, borderRadius: 8
+            display:"flex", gap:7, alignItems:"center", padding:"5px 12px",
+            background:`${T.lime}0a`, border:`1px solid ${T.lime}25`, borderRadius:6
           }}>
-            <Pulse color={T.green} />
-            <span style={{ fontSize: 12, color: T.green, fontWeight: 800 }}>{timeStr}</span>
+            <Pulse color={T.lime}/>
+            <span style={{
+              fontFamily:"'IBM Plex Mono',monospace",
+              fontSize:11, color:T.lime, fontWeight:600, letterSpacing:"0.06em"
+            }}>{timeStr}</span>
           </div>
-          <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+
+          {/* KPI pills */}
+          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
             {[
-              { l: "Devs", v: devs.length, c: T.indigoLt },
-              { l: "Commits", v: TOTAL_COMMITS, c: "#34d399" },
-              { l: "At Risk", v: AT_RISK, c: T.orange },
-              { l: "Entropy Files", v: file_entropy_count, c: T.red },
+              { l:"DEVS", v:devs.length, c:T.cyan },
+              { l:"COMMITS", v:TOTAL_COMMITS, c:T.lime },
+              { l:"RISK", v:AT_RISK, c:T.red },
             ].map(m => (
-              <div key={m.l} style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
-                <span style={{ fontSize: 11, color: T.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{m.l}</span>
-                <span style={{ fontSize: 16, fontWeight: 900, color: m.c }}>{m.v}</span>
+              <div key={m.l} style={{
+                display:"flex", flexDirection:"column", alignItems:"center",
+                padding:"4px 10px", borderRadius:6,
+                background:`${m.c}0c`, border:`1px solid ${m.c}25`
+              }}>
+                <span style={{ fontSize:7, color:m.c, fontWeight:700, letterSpacing:"0.14em" }}>{m.l}</span>
+                <span style={{
+                  fontFamily:"'IBM Plex Mono',monospace",
+                  fontSize:14, fontWeight:700, color:m.c, lineHeight:1.1
+                }}>{m.v}</span>
               </div>
             ))}
           </div>
         </header>
 
-        {/* Content */}
-        <main style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
+        {/* CONTENT */}
+        <main style={{ flex:1, overflow:"auto", padding:"24px 28px" }}>
           {page === "overview" && <OverviewPage onNav={navigate} data={context} />}
           {page === "leaderboard" && <LeaderboardPage onSelect={d => { setSelDev(d); setPage("profile"); }} data={context} />}
           {page === "profile" && <ProfilePage dev={selDev} onBack={() => setPage("leaderboard")} data={context} />}

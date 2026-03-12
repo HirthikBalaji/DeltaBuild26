@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
     "chokidar": "^5.0.0",
     "cors": "^2.8.6",
     "csv-parse": "^6.1.0",
