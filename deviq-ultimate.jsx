@@ -55,14 +55,15 @@ if (typeof document !== "undefined" && !document.getElementById("diq-fonts")) {
   document.head.appendChild(l);
 }
 
-/* Global CSS: scanline overlay + glow keyframes + scrollbar */
+/* Global CSS: scanline overlay + glow keyframes + scrollbar + responsive */
 if (typeof document !== "undefined" && !document.getElementById("diq-global-css")) {
   const s = document.createElement("style");
   s.id = "diq-global-css";
   s.textContent = `
     *, *::before, *::after { box-sizing: border-box; }
     :root { color-scheme: dark; }
-    body { margin:0; background:${T.bg}; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin:0; background:${T.bg}; overflow-x:hidden; }
     ::-webkit-scrollbar { width:4px; height:4px; }
     ::-webkit-scrollbar-track { background:${T.bg}; }
     ::-webkit-scrollbar-thumb { background:${T.borderHi}; border-radius:4px; }
@@ -71,6 +72,7 @@ if (typeof document !== "undefined" && !document.getElementById("diq-global-css"
     @keyframes diq-scan  { 0%{transform:translateY(-100%);} 100%{transform:translateY(100vh);} }
     @keyframes diq-fade-up { from{opacity:0;transform:translateY(14px);} to{opacity:1;transform:translateY(0);} }
     @keyframes diq-slide-in { from{opacity:0;transform:translateX(-18px);} to{opacity:1;transform:translateX(0);} }
+    @keyframes diq-slide-up { from{opacity:0;transform:translateY(100%);} to{opacity:1;transform:translateY(0);} }
     @keyframes diq-spin { to{transform:rotate(360deg);} }
     @keyframes diq-flicker { 0%,19.9%,22%,62.9%,64%,64.9%,70%,100%{opacity:1} 20%,21.9%,63%,63.9%,65%,69.9%{opacity:.6} }
     @keyframes float-y { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
@@ -88,6 +90,42 @@ if (typeof document !== "undefined" && !document.getElementById("diq-global-css"
       content:''; position:absolute; inset:0; border-radius:inherit;
       background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
       pointer-events:none; z-index:0;
+    }
+    /* ── Mobile bottom nav (hidden on desktop) ── */
+    .diq-mobile-nav {
+      display:none; position:fixed; bottom:0; left:0; right:0; z-index:500;
+      background:${T.surface}ee; border-top:1px solid ${T.borderHi};
+      padding:6px 0 env(safe-area-inset-bottom,6px);
+      box-shadow:0 -4px 30px rgba(0,255,200,0.10);
+      backdrop-filter:blur(16px);
+    }
+    .diq-mobile-topbar { display:none !important; }
+    /* ── Tablet (≤ 1024px) ── */
+    @media (max-width:1024px) {
+      .diq-grid-4 { grid-template-columns:repeat(2,1fr) !important; }
+      .diq-grid-3 { grid-template-columns:repeat(2,1fr) !important; }
+    }
+    /* ── Mobile (≤ 768px) ── */
+    @media (max-width:768px) {
+      .diq-desktop-sidebar { display:none !important; }
+      .diq-desktop-topbar  { display:none !important; }
+      .diq-mobile-topbar   { display:flex !important; }
+      .diq-mobile-nav      { display:flex !important; }
+      .diq-grid-2 { grid-template-columns:1fr !important; }
+      .diq-grid-3 { grid-template-columns:1fr !important; }
+      .diq-grid-4 { grid-template-columns:1fr 1fr !important; gap:10px !important; }
+      .diq-card   { padding:14px 16px !important; }
+      .diq-hide-mobile { display:none !important; }
+      .diq-main-content { padding:12px 12px 80px !important; }
+      .diq-signin-split { flex-direction:column !important; gap:20px !important; padding:16px !important; }
+      .diq-signin-left  { display:none !important; }
+      .diq-signin-form  { width:100% !important; max-width:100% !important; }
+    }
+    /* ── Small phone (≤ 480px) ── */
+    @media (max-width:480px) {
+      .diq-grid-4 { grid-template-columns:1fr 1fr !important; gap:8px !important; }
+      .diq-topbar-kpis { display:none !important; }
+      .diq-card { padding:12px !important; border-radius:8px !important; }
     }
   `;
   document.head.appendChild(s);
@@ -185,6 +223,29 @@ function useClock() {
   const [time, setTime] = useState(new Date());
   useEffect(() => { const i = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(i); }, []);
   return time;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   RESPONSIVE BREAKPOINT HOOK
+───────────────────────────────────────────────────────────────── */
+function useBreakpoint() {
+  const [bp, setBp] = useState(() => {
+    if (typeof window === "undefined") return "desktop";
+    const w = window.innerWidth;
+    return w <= 480 ? "xs" : w <= 768 ? "mobile" : w <= 1024 ? "tablet" : "desktop";
+  });
+  useEffect(() => {
+    const calc = () => {
+      const w = window.innerWidth;
+      setBp(w <= 480 ? "xs" : w <= 768 ? "mobile" : w <= 1024 ? "tablet" : "desktop");
+    };
+    window.addEventListener("resize", calc);
+    return () => window.removeEventListener("resize", calc);
+  }, []);
+  const isMobile = bp === "mobile" || bp === "xs";
+  const isTablet = bp === "tablet";
+  const isDesktop = bp === "desktop";
+  return { bp, isMobile, isTablet, isDesktop };
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -6900,6 +6961,17 @@ Answer the question based on the data above. Be concise, use plain text. No JSON
   );
 }
 
+const SENTIMENT_COLOR = {
+  positive: T.lime,
+  negative: T.red,
+  neutral:  T.cyan,
+};
+const SENTIMENT_ICON = {
+  positive: "😊",
+  negative: "😟",
+  neutral:  "😐",
+};
+
 function SlackPage({ data }) {
   const [localSlack, setLocalSlack] = useState(null);
   const slack = localSlack ?? data.slack;
@@ -7191,7 +7263,653 @@ const PAGES = [
   { id: "hiddenwk",    label: "Hidden Work Detector",  icon: "👁" },
   { id: "jira",        label: "Jira Agent",             icon: "🤖" },
   { id: "slack",       label: "Slack Intelligence",     icon: "💬" },
+  { id: "vitals",      label: "Org Vitals Monitor",     icon: "🫀" },
 ];
+
+/* ═════════════════════════════════════════════════════════════════
+   ORG VITALS MONITOR
+   ICU-style continuous vital signs for engineering organizations.
+
+   Heart Rate     = commit velocity   (flatline = team stopped)
+   Blood Pressure = coordination load (too high = bottleneck, too low = silo)
+   SpO₂           = knowledge spread  (low = key-person risk)
+   Temperature    = burnout index     (fever = crisis incoming)
+   Resp. Rate     = deployment freq   (tickets closed / sprint)
+═════════════════════════════════════════════════════════════════ */
+
+/* ── Compute vitals from live context data ── */
+function computeVitals(devs, fileData, deps, tickets) {
+  const n = Math.max(devs.length, 1);
+
+  /* Heart Rate — commit velocity (target ~60 bpm ≡ 1 commit/dev/day) */
+  const totalCommits = devs.reduce((s,d)=>s+d.commits,0);
+  const commitsPerDev = totalCommits / n;
+  const heartRate = Math.min(Math.round(40 + (commitsPerDev / 84) * 100), 180);
+
+  /* Blood Pressure — coordination tax: dep edges vs team size */
+  const depWeight = deps.reduce((s,e)=>s+e.weight,0);
+  const bpSystolic  = Math.min(Math.round(80 + (depWeight / Math.max(n*3,1)) * 80), 200);
+  const bpDiastolic = Math.round(bpSystolic * 0.63);
+
+  /* SpO₂ — knowledge distribution entropy across files */
+  const fileEntropies = fileData.map(f=>f.entropy||0).filter(e=>e>0);
+  const avgEntropy = fileEntropies.length ? fileEntropies.reduce((s,e)=>s+e,0)/fileEntropies.length : 2;
+  const highEntropyFiles = fileData.filter(f=>(f.entropy||0)>=2).length;
+  const spo2 = Math.max(Math.min(Math.round(99 - (highEntropyFiles/Math.max(fileData.length,1))*30 + (avgEntropy-1)*3), 99), 68);
+
+  /* Temperature — burnout index → degrees (37°C normal, 40°C critical) */
+  const avgBurnout = devs.reduce((s,d)=>s+d.burnout,0)/n;
+  const tempC = parseFloat((36.5 + (avgBurnout/100)*4.5).toFixed(1));
+  const tempF = parseFloat((tempC*9/5+32).toFixed(1));
+
+  /* Respiratory Rate — ticket throughput (closed tickets per sprint window) */
+  const closed = tickets.filter(t=>t.status==="Done").length;
+  const respRate = Math.min(Math.round(8 + (closed/Math.max(tickets.length,1))*22), 40);
+
+  /* Per-dev anomalies for arrhythmia/alerts */
+  const anomalies = devs
+    .filter(d => d.burnout>=60 || d.open_tasks>12 || d.flow?.score<40)
+    .map(d => ({
+      dev: d.name,
+      type: d.burnout>=80 ? "critical" : d.burnout>=60 ? "arrhythmia" : "warning",
+      msg: d.burnout>=80
+        ? `${d.name}: CRITICAL BURNOUT ${d.burnout}% — flatline risk`
+        : d.burnout>=60
+        ? `${d.name}: Arrhythmia detected — burnout ${d.burnout}%`
+        : `${d.name}: Low flow state — ${d.flow?.label||"degraded"}`,
+    }));
+
+  /* Status labels */
+  const hrStatus  = heartRate<50?"bradycardia":heartRate>100?"tachycardia":"normal";
+  const bpStatus  = bpSystolic>140?"hypertensive":bpSystolic<90?"hypotensive":"normal";
+  const spo2Status= spo2<90?"critical":spo2<95?"low":"normal";
+  const tempStatus= tempC>=39.5?"fever":tempC>=38.5?"elevated":"normal";
+  const rrStatus  = respRate<12?"low":respRate>25?"high":"normal";
+
+  return {
+    heartRate, bpSystolic, bpDiastolic, spo2, tempC, tempF, respRate,
+    hrStatus, bpStatus, spo2Status, tempStatus, rrStatus,
+    anomalies, avgBurnout: Math.round(avgBurnout), totalCommits, closed,
+  };
+}
+
+/* ── Animated ECG waveform generator ── */
+function useWaveform({ length = 120, type = "ecg", bpm = 72, anomaly = false }) {
+  const [points, setPoints] = useState(() => new Array(length).fill(50));
+  const tickRef = useRef(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPoints(prev => {
+        const next = [...prev.slice(1)];
+        const t = tickRef.current;
+        let y = 50;
+
+        if (type === "ecg") {
+          const period = Math.round(60 / bpm * 30);
+          const phase  = t % period;
+          if (phase === 0)                   y = anomaly ? (50 + (Math.random()>0.3?-28:8)) : 22;   // R peak / arrhythmia
+          else if (phase === 1)              y = 55;
+          else if (phase === Math.round(period*0.12)) y = 62;  // S wave
+          else if (phase === Math.round(period*0.35)) y = 40;  // T wave
+          else if (phase === Math.round(period*0.42)) y = 50;
+          else y = 50 + (anomaly ? (Math.random()-0.5)*4 : (Math.random()-0.5)*1.5);
+          if (anomaly && Math.random() < 0.04) y = 50 + (Math.random()-0.5)*40; // artifact
+        }
+
+        if (type === "bp") {
+          const period = 36;
+          const phase  = t % period;
+          if (phase < 4)       y = 30 + (phase/4)*(anomaly?15:8);
+          else if (phase < 8)  y = (anomaly?45:38) - ((phase-4)/4)*12;
+          else if (phase < 14) y = 26 + ((phase-8)/6)*10;
+          else if (phase < 20) y = 36 - ((phase-14)/6)*8;
+          else                 y = 28 + (Math.random()-0.5)*2;
+        }
+
+        if (type === "spo2") {
+          const period = 40;
+          const phase  = t % period;
+          const base   = anomaly ? 38 : 28;
+          y = base + Math.sin((phase/period)*Math.PI*2)*14 + (Math.random()-0.5)*2;
+          if (anomaly && Math.random() < 0.06) y += (Math.random()-0.5)*20;
+        }
+
+        if (type === "resp") {
+          const period = 50;
+          const phase  = t % period;
+          y = 50 + Math.sin((phase/period)*Math.PI*2)*(anomaly?20:12) + (Math.random()-0.5)*2;
+        }
+
+        if (type === "temp") {
+          y = 50 + Math.sin(t*0.04)*3 + (anomaly ? Math.sin(t*0.13)*6 : 0) + (Math.random()-0.5)*1;
+        }
+
+        tickRef.current++;
+        next.push(Math.max(5, Math.min(95, y)));
+        return next;
+      });
+    }, 40);
+    return () => clearInterval(interval);
+  }, [type, bpm, anomaly, length]);
+
+  return points;
+}
+
+/* ── SVG waveform trace ── */
+function WaveTrace({ points, color, width = 400, height = 80, glow = true, flatline = false }) {
+  const W = width, H = height;
+  const pts = flatline
+    ? points.map((_, i) => `${(i/(points.length-1))*W},${H/2}`)
+    : points.map((v, i) => `${(i/(points.length-1))*W},${H - (v/100)*H}`);
+  const d = "M" + pts.join(" L");
+  const gradId = `wg-${color.replace(/[^a-z0-9]/gi,"")}`;
+  return (
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display:"block" }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={color} stopOpacity="0"/>
+          <stop offset="60%" stopColor={color} stopOpacity="0.8"/>
+          <stop offset="100%" stopColor={color} stopOpacity="1"/>
+        </linearGradient>
+        {glow && (
+          <filter id={`gf-${gradId}`}>
+            <feGaussianBlur stdDeviation="1.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        )}
+      </defs>
+      {/* Grid lines */}
+      {[25,50,75].map(y => (
+        <line key={y} x1="0" y1={H*(y/100)} x2={W} y2={H*(y/100)}
+          stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+      ))}
+      {/* Trace */}
+      <path d={d} fill="none" stroke={`url(#${gradId})`} strokeWidth={flatline?"1.5":"2"}
+        filter={glow?`url(#gf-${gradId})`:undefined}
+        style={{ transition: flatline ? "all 0.3s" : undefined }}/>
+      {/* Leading dot */}
+      {!flatline && (() => {
+        const lastPt = pts[pts.length-1].split(",");
+        return <circle cx={lastPt[0]} cy={lastPt[1]} r="3" fill={color} style={{ filter:`drop-shadow(0 0 4px ${color})` }}/>;
+      })()}
+    </svg>
+  );
+}
+
+/* ── Single vital panel ── */
+function VitalPanel({ vital, isMobile }) {
+  const {
+    label, sublabel, value, unit, unit2, value2,
+    color, waveType, bpm, anomaly, flatline,
+    status, statusLabel, statusColor,
+    normalRange, description
+  } = vital;
+
+  const points = useWaveform({ length:120, type:waveType, bpm:bpm||72, anomaly:!!anomaly });
+  const [alertFlash, setAlertFlash] = useState(false);
+  useEffect(() => {
+    if (anomaly) {
+      const i = setInterval(() => setAlertFlash(f=>!f), 800);
+      return () => clearInterval(i);
+    }
+  }, [anomaly]);
+
+  const isAlarm = status === "critical" || status === "fever" || status === "tachycardia" || status === "hypertensive";
+
+  return (
+    <div style={{
+      background: T.surface,
+      border: `1px solid ${isAlarm && alertFlash ? statusColor : T.border}`,
+      borderRadius: 10,
+      overflow: "hidden",
+      position: "relative",
+      boxShadow: isAlarm ? `0 0 24px ${statusColor}22` : "none",
+      transition: "border-color 0.4s, box-shadow 0.4s",
+      minHeight: isMobile ? 160 : 200,
+      display: "flex", flexDirection: "column"
+    }}>
+      {/* Corner accent */}
+      <div style={{ position:"absolute", top:0, left:0, width:20, height:20,
+        borderTop:`2px solid ${color}`, borderLeft:`2px solid ${color}`,
+        borderRadius:"10px 0 0 0", pointerEvents:"none", zIndex:2 }}/>
+
+      {/* Header row */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", padding:"12px 14px 0", gap:8, flexShrink:0 }}>
+        <div>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:color, letterSpacing:"0.2em", fontWeight:700, marginBottom:2 }}>
+            {label}
+          </div>
+          <div style={{ fontSize:10, color:T.dim }}>{sublabel}</div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ display:"flex", alignItems:"baseline", gap:4, justifyContent:"flex-end" }}>
+            <span style={{
+              fontFamily:"'IBM Plex Mono',monospace",
+              fontSize: isMobile ? 26 : 32,
+              fontWeight:700, color:isAlarm&&alertFlash ? statusColor : T.text,
+              lineHeight:1, transition:"color 0.4s",
+              textShadow: isAlarm ? `0 0 20px ${statusColor}` : `0 0 12px ${color}55`
+            }}>{value}</span>
+            <span style={{ fontSize:11, color:T.muted, fontWeight:600 }}>{unit}</span>
+            {value2 !== undefined && (
+              <span style={{ fontSize:16, color:T.dim, fontFamily:"'IBM Plex Mono',monospace", fontWeight:600 }}>/{value2}</span>
+            )}
+          </div>
+          {/* Status badge */}
+          <div style={{
+            display:"inline-flex", alignItems:"center", gap:4, marginTop:4,
+            padding:"2px 8px", borderRadius:3,
+            background: `${statusColor}18`,
+            border:`1px solid ${statusColor}35`,
+          }}>
+            {isAlarm && <div style={{ width:6, height:6, borderRadius:"50%", background:statusColor, animation:"diq-pulse 0.8s ease infinite" }}/>}
+            <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:8, color:statusColor, fontWeight:700, letterSpacing:"0.1em" }}>
+              {statusLabel.toUpperCase()}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Waveform */}
+      <div style={{ flex:1, padding:"8px 0 0", position:"relative", minHeight: isMobile?60:80 }}>
+        <WaveTrace points={points} color={color} height={isMobile?60:80} flatline={flatline}/>
+        {flatline && (
+          <div style={{
+            position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:T.red,
+            letterSpacing:"0.2em", fontWeight:700, animation:"diq-glow 1s ease infinite"
+          }}>FLATLINE</div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"4px 14px 10px", flexShrink:0 }}>
+        <span style={{ fontSize:9, color:T.dim }}>Normal: {normalRange}</span>
+        <span style={{ fontSize:9, color:T.muted }}>{description}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── Scrolling alarm ticker ── */
+function AlarmTicker({ anomalies }) {
+  const [visible, setVisible] = useState(0);
+  useEffect(() => {
+    if (anomalies.length < 2) return;
+    const i = setInterval(() => setVisible(v => (v+1) % anomalies.length), 3000);
+    return () => clearInterval(i);
+  }, [anomalies.length]);
+  if (!anomalies.length) return null;
+  const a = anomalies[visible % anomalies.length];
+  const color = a.type==="critical" ? T.red : a.type==="arrhythmia" ? T.orange : T.amber;
+  return (
+    <div style={{
+      background:`${color}0e`, border:`1px solid ${color}40`,
+      borderRadius:8, padding:"10px 16px",
+      display:"flex", alignItems:"center", gap:12, overflow:"hidden"
+    }}>
+      <div style={{ width:8, height:8, borderRadius:"50%", background:color, flexShrink:0, animation:"diq-pulse 0.7s ease infinite" }}/>
+      <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:color, fontWeight:700, letterSpacing:"0.18em", flexShrink:0 }}>
+        {a.type.toUpperCase()}
+      </span>
+      <span style={{ fontSize:12, color:T.text, flex:1, animation:"diq-fade-up 0.3s ease" }}>{a.msg}</span>
+      <span style={{ fontSize:9, color:T.dim, flexShrink:0, fontFamily:"'IBM Plex Mono',monospace" }}>
+        {anomalies.length > 1 ? `${visible+1}/${anomalies.length}` : ""}
+      </span>
+    </div>
+  );
+}
+
+/* ── Mini patient card ── */
+function PatientCard({ dev, isMobile }) {
+  const isHot   = dev.burnout >= 60;
+  const isCrit  = dev.burnout >= 80;
+  const bpColor = isCrit ? T.red : isHot ? T.orange : T.lime;
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (isCrit) { const i = setInterval(()=>setFlash(f=>!f),600); return()=>clearInterval(i); }
+  }, [isCrit]);
+
+  const miniPts = useWaveform({ length:40, type:"ecg", bpm: 40+dev.burnout, anomaly:isHot });
+
+  return (
+    <div style={{
+      background: T.surface,
+      border: `1px solid ${isCrit&&flash ? T.red : T.border}`,
+      borderRadius:8, padding:"10px 12px",
+      display:"flex", flexDirection:"column", gap:8,
+      boxShadow: isCrit ? `0 0 16px ${T.red}18` : "none",
+      transition:"border-color 0.4s",
+    }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <div style={{
+          width:28, height:28, borderRadius:7, flexShrink:0,
+          background:`linear-gradient(135deg,${bpColor}22,${T.violet}22)`,
+          border:`1.5px solid ${bpColor}50`,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          fontSize:10, fontWeight:800, color:bpColor
+        }}>{dev.name.slice(0,2).toUpperCase()}</div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{dev.name}</div>
+          <div style={{ fontSize:9, color:T.dim }}>{dev.role}</div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:14, fontWeight:700,
+            color:bpColor, lineHeight:1,
+            textShadow: isCrit&&flash ? `0 0 10px ${T.red}` : "none"
+          }}>{dev.burnout}%</div>
+          <div style={{ fontSize:8, color:T.dim, letterSpacing:"0.08em" }}>BURNOUT</div>
+        </div>
+      </div>
+      {/* Mini ECG */}
+      <WaveTrace points={miniPts} color={bpColor} height={30} flatline={dev.burnout>=95}/>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        <Tag color={dev.flow?.score>=75?T.lime:T.amber} size={9}>⚡ {dev.flow?.label||"—"}</Tag>
+        <Tag color={T.cyan} size={9}>↗ {dev.commits} commits</Tag>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main OrgVitals page ── */
+function OrgVitalsPage({ data }) {
+  const { devs, fileData, deps, tickets } = data;
+  const { isMobile } = useBreakpoint();
+  const v = computeVitals(devs, fileData, deps, tickets);
+
+  const [unit, setUnit] = useState("C"); // temp unit toggle
+  const [tab, setTab]   = useState("vitals");
+
+  /* Build vital configs */
+  const VITALS = [
+    {
+      id:"hr", label:"HEART RATE", sublabel:"Commit Velocity",
+      value: v.heartRate, unit:"bpm",
+      color: v.hrStatus==="tachycardia" ? T.red : v.hrStatus==="bradycardia" ? T.amber : T.lime,
+      waveType:"ecg", bpm: v.heartRate,
+      status: v.hrStatus,
+      statusLabel: v.hrStatus==="tachycardia"?"TACHYCARDIA":v.hrStatus==="bradycardia"?"BRADYCARDIA":"NORMAL SINUS",
+      statusColor: v.hrStatus==="tachycardia"?T.red:v.hrStatus==="bradycardia"?T.amber:T.lime,
+      anomaly: v.hrStatus!=="normal",
+      flatline: v.totalCommits===0,
+      normalRange:"50–100 bpm", description:"commits / dev"
+    },
+    {
+      id:"bp", label:"BLOOD PRESSURE", sublabel:"Coordination Load",
+      value:`${v.bpSystolic}`, unit:"mmHg", value2:v.bpDiastolic,
+      color: v.bpStatus==="hypertensive" ? T.red : v.bpStatus==="hypotensive" ? T.sky : T.cyan,
+      waveType:"bp",
+      status: v.bpStatus,
+      statusLabel: v.bpStatus==="hypertensive"?"HYPERTENSIVE":v.bpStatus==="hypotensive"?"HYPOTENSIVE":"NORMAL",
+      statusColor: v.bpStatus==="hypertensive"?T.red:v.bpStatus==="hypotensive"?T.sky:T.cyan,
+      anomaly: v.bpStatus!=="normal",
+      flatline: false,
+      normalRange:"90–130 sys", description:"dep interactions"
+    },
+    {
+      id:"spo2", label:"SpO₂", sublabel:"Knowledge Distribution",
+      value: v.spo2, unit:"%",
+      color: v.spo2Status==="critical"?T.red:v.spo2Status==="low"?T.orange:T.cyan,
+      waveType:"spo2",
+      status: v.spo2Status,
+      statusLabel: v.spo2Status==="critical"?"HYPOXIC":v.spo2Status==="low"?"LOW":"SATURATED",
+      statusColor: v.spo2Status==="critical"?T.red:v.spo2Status==="low"?T.orange:T.cyan,
+      anomaly: v.spo2Status!=="normal",
+      flatline: false,
+      normalRange:"95–99%", description:"knowledge spread"
+    },
+    {
+      id:"temp", label:"TEMPERATURE", sublabel:"Burnout Index",
+      value: unit==="C" ? v.tempC : v.tempF,
+      unit:`°${unit}`,
+      color: v.tempStatus==="fever"?T.red:v.tempStatus==="elevated"?T.orange:T.lime,
+      waveType:"temp",
+      status: v.tempStatus,
+      statusLabel: v.tempStatus==="fever"?"FEVER":v.tempStatus==="elevated"?"ELEVATED":"AFEBRILE",
+      statusColor: v.tempStatus==="fever"?T.red:v.tempStatus==="elevated"?T.orange:T.lime,
+      anomaly: v.tempStatus!=="normal",
+      flatline: false,
+      normalRange: unit==="C"?"36.5–37.2°C":"97.7–98.9°F", description:`avg burnout ${v.avgBurnout}%`
+    },
+    {
+      id:"rr", label:"RESP. RATE", sublabel:"Deployment Frequency",
+      value: v.respRate, unit:"br/min",
+      color: v.rrStatus==="high"?T.orange:v.rrStatus==="low"?T.amber:T.violet,
+      waveType:"resp",
+      status: v.rrStatus,
+      statusLabel: v.rrStatus==="high"?"TACHYPNOEIC":v.rrStatus==="low"?"BRADYPNOEIC":"EUPNOEA",
+      statusColor: v.rrStatus==="high"?T.orange:v.rrStatus==="low"?T.amber:T.violet,
+      anomaly: v.rrStatus!=="normal",
+      flatline: v.closed===0,
+      normalRange:"12–20 br/min", description:`${v.closed} tickets closed`
+    },
+  ];
+
+  const overallStatus = v.anomalies.some(a=>a.type==="critical") ? "CRITICAL"
+    : v.anomalies.some(a=>a.type==="arrhythmia") ? "UNSTABLE"
+    : v.anomalies.length > 0 ? "CAUTION"
+    : "STABLE";
+  const overallColor = overallStatus==="CRITICAL"?T.red:overallStatus==="UNSTABLE"?T.orange:overallStatus==="CAUTION"?T.amber:T.lime;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap: isMobile?14:20 }}>
+
+      {/* ── Header ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+        <div style={{ flex:1, minWidth:200 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
+            <span style={{ fontSize: isMobile?22:28, lineHeight:1 }}>🫀</span>
+            <div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontSize: isMobile?18:24, fontWeight:900, color:T.text, lineHeight:1 }}>
+                Org Vitals Monitor
+              </div>
+              <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>
+                Continuous vital signs for engineering health
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Overall status badge */}
+        <div style={{
+          display:"flex", alignItems:"center", gap:10, padding:"10px 18px",
+          background:`${overallColor}10`, border:`1.5px solid ${overallColor}50`,
+          borderRadius:10, boxShadow:`0 0 24px ${overallColor}15`
+        }}>
+          <div style={{ width:10, height:10, borderRadius:"50%", background:overallColor,
+            animation: overallStatus!=="STABLE" ? "diq-pulse 0.8s ease infinite" : "none",
+            boxShadow:`0 0 8px ${overallColor}` }}/>
+          <div>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize: isMobile?14:18, fontWeight:700, color:overallColor, letterSpacing:"0.06em" }}>
+              {overallStatus}
+            </div>
+            <div style={{ fontSize:9, color:T.dim, letterSpacing:"0.12em" }}>ORG STATUS</div>
+          </div>
+        </div>
+
+        {/* Temp unit toggle */}
+        <div style={{ display:"flex", gap:0, border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden" }}>
+          {["C","F"].map(u=>(
+            <button key={u} onClick={()=>setUnit(u)} style={{
+              padding:"6px 12px", cursor:"pointer", fontFamily:"'IBM Plex Mono',monospace",
+              fontSize:11, fontWeight:700, border:"none",
+              background: unit===u ? `${T.cyan}20` : "transparent",
+              color: unit===u ? T.cyan : T.dim,
+              borderRight: u==="C" ? `1px solid ${T.border}` : "none"
+            }}>°{u}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Alarm ticker ── */}
+      {v.anomalies.length > 0 && <AlarmTicker anomalies={v.anomalies}/>}
+
+      {/* ── Tab bar ── */}
+      <div style={{ display:"flex", gap:0, borderBottom:`1px solid ${T.border}` }}>
+        {[
+          { id:"vitals", label:"Vital Signs" },
+          { id:"patients", label:`Patients (${devs.length})` },
+          { id:"history", label:"Clinical Notes" },
+        ].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            padding:"8px 16px", cursor:"pointer",
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:600,
+            background:"transparent", border:"none",
+            borderBottom: tab===t.id ? `2px solid ${T.cyan}` : "2px solid transparent",
+            color: tab===t.id ? T.cyan : T.muted,
+            letterSpacing:"0.04em", transition:"color 0.15s"
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── VITALS TAB ── */}
+      {tab==="vitals" && (
+        <div style={{
+          display:"grid",
+          gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,1fr)",
+          gap: isMobile?10:16
+        }}>
+          {VITALS.map(vital=>(
+            <div key={vital.id} style={{ gridColumn: vital.id==="bp" && !isMobile ? "span 1" : "span 1" }}>
+              <VitalPanel vital={vital} isMobile={isMobile}/>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── PATIENTS TAB ── */}
+      {tab==="patients" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div style={{
+            background:`${T.cyan}06`, border:`1px solid ${T.cyan}20`,
+            borderRadius:8, padding:"12px 16px", fontSize:12, color:T.muted, lineHeight:1.7
+          }}>
+            Each developer is a patient on the ward. Their individual ECG traces, burnout temperature,
+            and flow state are monitored continuously. Red traces indicate arrhythmia — irregular work patterns
+            that precede burnout events.
+          </div>
+          <div style={{
+            display:"grid",
+            gridTemplateColumns: isMobile?"1fr":"repeat(auto-fill,minmax(260px,1fr))",
+            gap:12
+          }}>
+            {[...devs].sort((a,b)=>b.burnout-a.burnout).map(dev=>(
+              <PatientCard key={dev.name} dev={dev} isMobile={isMobile}/>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── CLINICAL NOTES TAB ── */}
+      {tab==="history" && (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+          {/* ICU Summary */}
+          <Card>
+            <SH icon="📋" title="ICU Clinical Summary"/>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile?"1fr":"1fr 1fr", gap:16 }}>
+              {[
+                {
+                  title:"Cardiovascular",
+                  icon:"🫀",
+                  color: v.hrStatus!=="normal"?T.orange:T.lime,
+                  lines:[
+                    `Heart rate: ${v.heartRate} bpm (${v.hrStatus})`,
+                    `Total commit volume: ${v.totalCommits}`,
+                    v.hrStatus==="tachycardia" ? "⚠ Unsustainable velocity detected" : v.hrStatus==="bradycardia" ? "⚠ Low commit rate — engagement risk" : "✓ Healthy commit cadence"
+                  ]
+                },
+                {
+                  title:"Haemodynamic",
+                  icon:"🩺",
+                  color: v.bpStatus!=="normal"?T.red:T.cyan,
+                  lines:[
+                    `BP: ${v.bpSystolic}/${v.bpDiastolic} mmHg (${v.bpStatus})`,
+                    `Dependency interactions: ${deps.reduce((s,e)=>s+e.weight,0)}`,
+                    v.bpStatus==="hypertensive" ? "⚠ High coordination tax — bottlenecks present" : v.bpStatus==="hypotensive" ? "⚠ Isolation detected — low team interaction" : "✓ Healthy coordination load"
+                  ]
+                },
+                {
+                  title:"Respiratory",
+                  icon:"🫁",
+                  color: v.spo2Status!=="normal"?T.orange:T.cyan,
+                  lines:[
+                    `SpO₂: ${v.spo2}% (${v.spo2Status})`,
+                    `High-entropy files: ${fileData.filter(f=>f.entropy>=2).length}`,
+                    v.spo2Status==="critical" ? "⚠ Severe knowledge concentration — bus-factor crisis" : v.spo2Status==="low" ? "⚠ Knowledge siloing detected" : "✓ Knowledge well-distributed"
+                  ]
+                },
+                {
+                  title:"Metabolic",
+                  icon:"🌡",
+                  color: v.tempStatus!=="normal"?T.red:T.lime,
+                  lines:[
+                    `Temp: ${v.tempC}°C / ${v.tempF}°F (${v.tempStatus})`,
+                    `Team avg burnout: ${v.avgBurnout}%`,
+                    v.tempStatus==="fever" ? "⚠ FEVER — immediate intervention required" : v.tempStatus==="elevated" ? "⚠ Elevated — monitor closely" : "✓ Afebrile — team workload healthy"
+                  ]
+                }
+              ].map(section=>(
+                <div key={section.title} style={{
+                  background: T.elevated, borderRadius:8, padding:"14px 16px",
+                  borderLeft:`3px solid ${section.color}`
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <span style={{ fontSize:16 }}>{section.icon}</span>
+                    <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:section.color, fontWeight:700, letterSpacing:"0.14em" }}>
+                      {section.title.toUpperCase()}
+                    </span>
+                  </div>
+                  {section.lines.map((l,i)=>(
+                    <div key={i} style={{ fontSize:12, color: i===2?(l.startsWith("⚠")?T.amber:T.lime):T.muted, marginBottom:4, lineHeight:1.5 }}>{l}</div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Prognosis */}
+          <Card glow={overallColor}>
+            <SH icon="🔭" title="Prognosis"/>
+            <div style={{ fontSize:13, color:T.text, lineHeight:1.9 }}>
+              {overallStatus==="CRITICAL" && (
+                <>
+                  <span style={{ color:T.red, fontWeight:700 }}>CRITICAL CONDITION.</span> Multiple vital signs are outside safe range.
+                  Immediate engineering management intervention required. Developers showing burnout above 80% risk
+                  complete disengagement within 1–2 sprints. Reduce workload, defer non-critical tickets, schedule
+                  recovery time.
+                </>
+              )}
+              {overallStatus==="UNSTABLE" && (
+                <>
+                  <span style={{ color:T.orange, fontWeight:700 }}>UNSTABLE — MONITOR CLOSELY.</span> Arrhythmic patterns detected
+                  in commit velocity. Burnout levels are elevated. If current trajectory continues, expect degraded output quality
+                  within 2–3 sprints. Recommend 1:1 check-ins with at-risk developers and workload rebalancing.
+                </>
+              )}
+              {overallStatus==="CAUTION" && (
+                <>
+                  <span style={{ color:T.amber, fontWeight:700 }}>CAUTION — EARLY WARNING SIGNS.</span> Minor anomalies detected.
+                  The organization is functional but showing stress indicators. Proactive intervention now will prevent escalation.
+                  Review workload distribution and knowledge-sharing practices.
+                </>
+              )}
+              {overallStatus==="STABLE" && (
+                <>
+                  <span style={{ color:T.lime, fontWeight:700 }}>STABLE.</span> All vital signs within normal parameters.
+                  Commit velocity is healthy, coordination load is balanced, knowledge is well-distributed, and burnout
+                  levels are manageable. Continue current practices and monitor for changes.
+                </>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────────────
    SIGN IN PAGE (WOW EDITION)
@@ -7425,6 +8143,90 @@ function SignInPage({ onSignIn }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────
+   MOBILE DRAWER — full-screen nav for mobile
+───────────────────────────────────────────────────────────────── */
+function MobileDrawer({ open, onClose, page, navigate, AT_RISK, fileData }) {
+  if (!open) return null;
+  return (
+    <>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{
+        position:"fixed", inset:0, background:"rgba(8,12,20,0.75)",
+        backdropFilter:"blur(6px)", zIndex:600,
+        animation:"diq-fade-up 0.2s ease"
+      }}/>
+      {/* Drawer panel */}
+      <div style={{
+        position:"fixed", top:0, left:0, bottom:0, width:"min(80vw,300px)",
+        background:T.surface, borderRight:`1px solid ${T.borderHi}`,
+        zIndex:700, display:"flex", flexDirection:"column",
+        boxShadow:`6px 0 40px rgba(0,0,0,0.6)`,
+        animation:"diq-slide-in 0.25s cubic-bezier(0.4,0,0.2,1)"
+      }}>
+        {/* Header */}
+        <div style={{
+          padding:"18px 16px", borderBottom:`1px solid ${T.border}`,
+          display:"flex", alignItems:"center", justifyContent:"space-between"
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{
+              width:28, height:28, borderRadius:7,
+              background:`linear-gradient(135deg,${T.cyan}22,${T.violet}22)`,
+              border:`1.5px solid ${T.cyan}50`,
+              display:"flex", alignItems:"center", justifyContent:"center"
+            }}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
+                <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
+              </svg>
+            </div>
+            <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:900, color:T.text }}>DevIQ</div>
+            <Pulse color={T.lime}/>
+          </div>
+          <button onClick={onClose} style={{
+            background:"transparent", border:`1px solid ${T.border}`,
+            borderRadius:6, color:T.muted, fontSize:16, cursor:"pointer",
+            width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"inherit"
+          }}>✕</button>
+        </div>
+
+        {/* Nav list */}
+        <nav style={{ flex:1, padding:"10px 8px", overflowY:"auto" }}>
+          <div style={{ fontSize:8, color:T.dim, letterSpacing:"0.2em", padding:"0 8px", marginBottom:8, fontWeight:700 }}>MODULES</div>
+          {PAGES.map(p => {
+            const active = page === p.id || (page === "profile" && p.id === "leaderboard");
+            let badge = 0;
+            if (p.id==="burnout") badge = AT_RISK;
+            if (p.id==="code") badge = fileData.filter(f=>f.risk>=75).length;
+            return (
+              <div key={p.id} className="diq-nav-item" onClick={() => { navigate(p.id); onClose(); }}
+                style={{
+                  display:"flex", alignItems:"center", gap:10,
+                  padding:"10px 10px", borderRadius:8, cursor:"pointer", marginBottom:2,
+                  background: active ? `${T.cyan}12` : "transparent",
+                  color: active ? T.cyan : T.muted,
+                  borderLeft: active ? `2px solid ${T.cyan}` : "2px solid transparent",
+                  fontWeight: active ? 600 : 400, fontSize:12, userSelect:"none"
+                }}>
+                <span style={{ fontSize:15, flexShrink:0 }}>{p.icon}</span>
+                <span style={{ flex:1 }}>{p.label}</span>
+                {badge > 0 && (
+                  <span style={{
+                    fontSize:9, padding:"2px 6px", borderRadius:3,
+                    background:`${T.red}20`, color:T.red, border:`1px solid ${T.red}35`, fontWeight:700
+                  }}>{badge}</span>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
+    </>
+  );
+}
+
 export default function DevIQ() {
   const { devs, fileData, deps, tickets, slack, loading } = useDevIQData();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -7432,6 +8234,8 @@ export default function DevIQ() {
   const [selDev, setSelDev] = useState(null);
   const [ready, setReady] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { isMobile, isTablet } = useBreakpoint();
   const time = useClock();
   useEffect(() => { const t = setTimeout(() => setReady(true), 80); return () => clearTimeout(t); }, []);
   const navigate = useCallback(p => { setPage(p); setSelDev(null); }, []);
@@ -7441,280 +8245,338 @@ export default function DevIQ() {
     <div style={{
       background:T.bg, height:"100vh", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", gap:20,
-      fontFamily:"'IBM Plex Mono',monospace"
+      fontFamily:"'IBM Plex Mono',monospace", padding:"0 24px"
     }}>
       <div style={{ fontSize:32, color:T.cyan, animation:"diq-glow 2s ease infinite" }}>◈</div>
-      <div style={{ fontSize:13, color:T.cyan, letterSpacing:"0.2em" }}>INITIALIZING DEVIQ</div>
-      <div style={{
-        width:200, height:2, background:`${T.border}`, borderRadius:2, overflow:"hidden"
-      }}>
-        <div style={{
-          height:"100%", background:`linear-gradient(90deg,${T.cyan},${T.lime})`,
-          animation:"diq-scan 1.6s linear infinite", borderRadius:2
-        }}/>
+      <div style={{ fontSize:13, color:T.cyan, letterSpacing:"0.2em", textAlign:"center" }}>INITIALIZING DEVIQ</div>
+      <div style={{ width:"min(200px,80vw)", height:2, background:T.border, borderRadius:2, overflow:"hidden" }}>
+        <div style={{ height:"100%", background:`linear-gradient(90deg,${T.cyan},${T.lime})`, animation:"diq-scan 1.6s linear infinite", borderRadius:2 }}/>
       </div>
-      <div style={{ fontSize:10, color:T.dim, letterSpacing:"0.15em" }}>CONNECTING TO LIVE DATA STREAM</div>
+      <div style={{ fontSize:10, color:T.dim, letterSpacing:"0.15em", textAlign:"center" }}>CONNECTING TO LIVE DATA STREAM</div>
     </div>
   );
 
   if (!isAuthenticated) return <SignInPage onSignIn={() => setIsAuthenticated(true)} />;
 
   const TOTAL_COMMITS = devs.reduce((a, d) => a + d.commits, 0);
-  const TOTAL_LINES = devs.reduce((a, d) => a + d.additions, 0);
-  const AT_RISK = devs.filter(d => d.burnout >= 60).length;
+  const TOTAL_LINES   = devs.reduce((a, d) => a + d.additions, 0);
+  const AT_RISK       = devs.filter(d => d.burnout >= 60).length;
   const file_entropy_count = fileData.filter(f => f.entropy >= 2).length;
-  const AVG_CONTRIB = devs.length > 0 ? Math.round(devs.reduce((a, d) => a + d.contribution, 0) / devs.length) : 0;
-  const AVG_BURNOUT = devs.length > 0 ? Math.round(devs.reduce((a, d) => a + d.burnout, 0) / devs.length) : 0;
-
+  const AVG_CONTRIB   = devs.length > 0 ? Math.round(devs.reduce((a,d)=>a+d.contribution,0)/devs.length) : 0;
+  const AVG_BURNOUT   = devs.length > 0 ? Math.round(devs.reduce((a,d)=>a+d.burnout,0)/devs.length) : 0;
   const context = { devs, fileData, deps, tickets, slack, TOTAL_COMMITS, TOTAL_LINES, AT_RISK, AVG_CONTRIB, AVG_BURNOUT };
-
   const currentPage = PAGES.find(p => p.id === page);
+
+  /* Mobile bottom-nav pages (most-used subset) */
+  const MOBILE_NAV = [
+    { id:"overview",   label:"Home",    icon:"◉" },
+    { id:"leaderboard",label:"Board",   icon:"⬡" },
+    { id:"burnout",    label:"Burnout", icon:"◈" },
+    { id:"code",       label:"Code",    icon:"⬢" },
+    { id:"insights",   label:"AI",      icon:"✦" },
+  ];
+
+  const pageContent = (
+    <>
+      {page === "overview"     && <OverviewPage onNav={navigate} data={context} />}
+      {page === "leaderboard"  && <LeaderboardPage onSelect={d=>{setSelDev(d);setPage("profile");}} data={context} />}
+      {page === "profile"      && <ProfilePage dev={selDev} onBack={()=>setPage("leaderboard")} data={context} />}
+      {page === "burnout"      && <BurnoutPage data={context} />}
+      {page === "flow"         && <FlowPage data={context} />}
+      {page === "code"         && <CodeHealthPage data={context} />}
+      {page === "deps"         && <DependencyPage data={context} />}
+      {page === "psych"        && <PsychPage data={context} />}
+      {page === "team"         && <TeamPage data={context} />}
+      {page === "insights"     && <InsightsPage data={context} />}
+      {page === "evolution"    && <EvolutionPage data={context} />}
+      {page === "research"     && <ResearchPage data={context} />}
+      {page === "knowledge"    && <KnowledgeGraphPage data={context} />}
+      {page === "darkmatter"   && <DarkMatterPage data={context} />}
+      {page === "wcis"         && <WCISPage data={context} />}
+      {page === "blockchain"   && <BlockchainLedgerPage data={context} />}
+      {page === "zkp"          && <ZKPPage data={context} />}
+      {page === "qualityscore" && <AIQualityScoringPage data={context} />}
+      {page === "hiddenwk"     && <HiddenWorkPage data={context} />}
+      {page === "jira"         && <JiraAgentPage data={context} />}
+      {page === "slack"        && <SlackPage data={context} />}
+      {page === "vitals"       && <OrgVitalsPage data={context} />}
+    </>
+  );
 
   return (
     <div style={{
-      fontFamily: "'IBM Plex Mono','Fira Code',monospace",
-      background: T.bg, minHeight: "100vh", color: T.text,
-      fontSize: BASE_FS,
-      display: "flex", overflow: "hidden",
-      opacity: ready ? 1 : 0, transition: "opacity 0.4s ease"
+      fontFamily:"'IBM Plex Mono','Fira Code',monospace",
+      background:T.bg, minHeight:"100vh", color:T.text,
+      fontSize:isMobile ? 13 : BASE_FS,
+      display:"flex", overflow:"hidden",
+      opacity:ready?1:0, transition:"opacity 0.4s ease"
     }}>
-      {/* Scanline overlay */}
       <div className="scanline"/>
 
-      {/* SIDEBAR */}
-      <aside style={{
-        width: sidebarCollapsed ? 60 : 248,
-        background: T.surface,
-        borderRight: `1px solid ${T.border}`,
-        display: "flex", flexDirection: "column", flexShrink: 0,
-        transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
-        overflow: "hidden",
-        boxShadow: `4px 0 40px rgba(0,0,0,0.4), 1px 0 0 ${T.borderHi}`
-      }}>
-        {/* Logo */}
-        <div style={{
-          padding: sidebarCollapsed ? "20px 0" : "20px 18px",
-          borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center",
-          justifyContent: sidebarCollapsed ? "center" : "space-between",
-          gap: 10, flexShrink: 0
+      {/* ── MOBILE DRAWER ─────────────────────────────── */}
+      {isMobile && (
+        <MobileDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          page={page} navigate={navigate}
+          AT_RISK={AT_RISK} fileData={fileData}
+        />
+      )}
+
+      {/* ── DESKTOP SIDEBAR ───────────────────────────── */}
+      {!isMobile && (
+        <aside className="diq-desktop-sidebar" style={{
+          width: sidebarCollapsed ? 60 : (isTablet ? 210 : 248),
+          background:T.surface,
+          borderRight:`1px solid ${T.border}`,
+          display:"flex", flexDirection:"column", flexShrink:0,
+          transition:"width 0.25s cubic-bezier(0.4,0,0.2,1)",
+          overflow:"hidden",
+          boxShadow:`4px 0 40px rgba(0,0,0,0.4), 1px 0 0 ${T.borderHi}`
         }}>
-          {!sidebarCollapsed && (
-            <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
-              {/* Logo mark */}
+          {/* Logo */}
+          <div style={{
+            padding: sidebarCollapsed ? "18px 0" : "18px 16px",
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex", alignItems:"center",
+            justifyContent: sidebarCollapsed ? "center" : "space-between",
+            gap:10, flexShrink:0
+          }}>
+            {!sidebarCollapsed ? (
+              <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
+                <div style={{
+                  width:30, height:30, borderRadius:8, flexShrink:0,
+                  background:`linear-gradient(135deg,${T.cyan}22,${T.violet}22)`,
+                  border:`1.5px solid ${T.cyan}50`,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  boxShadow:`0 0 18px ${T.cyan}30`
+                }}>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
+                    <polygon points="8,4 12,6.5 12,9.5 8,12 4,9.5 4,6.5" fill={`${T.cyan}30`} stroke={T.cyan} strokeWidth="0.8"/>
+                    <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
+                  </svg>
+                </div>
+                <div>
+                  <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:900, color:T.text, letterSpacing:"-0.02em", lineHeight:1 }}>DevIQ</div>
+                  <div style={{ fontSize:7, color:T.cyan, letterSpacing:"0.18em", fontWeight:700, marginTop:1 }}>AI INTELLIGENCE</div>
+                </div>
+                <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5 }}>
+                  <Pulse color={T.lime}/>
+                  <span style={{ fontSize:8, color:T.lime, letterSpacing:"0.15em", fontWeight:700 }}>LIVE</span>
+                </div>
+              </div>
+            ) : (
               <div style={{
-                width:32, height:32, borderRadius:8, flexShrink:0,
+                width:30, height:30, borderRadius:8,
                 background:`linear-gradient(135deg,${T.cyan}22,${T.violet}22)`,
                 border:`1.5px solid ${T.cyan}50`,
-                display:"flex", alignItems:"center", justifyContent:"center",
-                boxShadow:`0 0 18px ${T.cyan}30`
+                display:"flex", alignItems:"center", justifyContent:"center"
               }}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                   <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
-                  <polygon points="8,4 12,6.5 12,9.5 8,12 4,9.5 4,6.5" fill={`${T.cyan}30`} stroke={T.cyan} strokeWidth="0.8"/>
                   <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
                 </svg>
               </div>
-              <div>
-                <div style={{
-                  fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:900,
-                  color:T.text, letterSpacing:"-0.02em", lineHeight:1
-                }}>DevIQ</div>
-                <div style={{ fontSize:8, color:T.cyan, letterSpacing:"0.18em", fontWeight:700, marginTop:1 }}>AI INTELLIGENCE</div>
-              </div>
-              <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:5 }}>
-                <Pulse color={T.lime}/>
-                <span style={{ fontSize:8, color:T.lime, letterSpacing:"0.15em", fontWeight:700 }}>LIVE</span>
-              </div>
-            </div>
-          )}
-          {sidebarCollapsed && (
-            <div style={{
-              width:32, height:32, borderRadius:8,
-              background:`linear-gradient(135deg,${T.cyan}22,${T.violet}22)`,
-              border:`1.5px solid ${T.cyan}50`,
-              display:"flex", alignItems:"center", justifyContent:"center",
-              boxShadow:`0 0 18px ${T.cyan}30`
-            }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <polygon points="8,1 15,5 15,11 8,15 1,11 1,5" stroke={T.cyan} strokeWidth="1.2" fill="none"/>
-                <circle cx="8" cy="8" r="1.5" fill={T.cyan}/>
-              </svg>
-            </div>
-          )}
-        </div>
-
-        {/* Nav */}
-        <nav style={{ flex:1, padding: sidebarCollapsed ? "12px 8px" : "12px 10px", overflowY:"auto" }}>
-          {!sidebarCollapsed && (
-            <div style={{
-              fontSize:8, color:T.dim, letterSpacing:"0.22em",
-              padding:"0 8px", marginBottom:10, fontWeight:700
-            }}>MODULES</div>
-          )}
-          {PAGES.map(p => {
-            const active = page === p.id || (page === "profile" && p.id === "leaderboard");
-            let badgeCount = 0;
-            if (p.id === 'burnout') badgeCount = AT_RISK;
-            if (p.id === 'code') badgeCount = fileData.filter(f => f.risk >= 75).length;
-
-            return (
-              <div key={p.id} className="diq-nav-item" onClick={() => navigate(p.id)}
-                title={sidebarCollapsed ? p.label : ""}
-                style={{
-                  display:"flex", alignItems:"center",
-                  gap: sidebarCollapsed ? 0 : 10,
-                  justifyContent: sidebarCollapsed ? "center" : "flex-start",
-                  padding: sidebarCollapsed ? "10px 0" : "9px 10px",
-                  borderRadius:8, cursor:"pointer", marginBottom:2,
-                  fontSize:12, userSelect:"none",
-                  background: active ? `${T.cyan}12` : "transparent",
-                  color: active ? T.cyan : T.muted,
-                  borderLeft: active ? `2px solid ${T.cyan}` : "2px solid transparent",
-                  fontWeight: active ? 600 : 400,
-                }}>
-                <span style={{ fontSize:14, flexShrink:0 }}>{p.icon}</span>
-                {!sidebarCollapsed && <span style={{ flex:1, fontSize:11 }}>{p.label}</span>}
-                {!sidebarCollapsed && badgeCount > 0 && (
-                  <span style={{
-                    fontFamily:"'IBM Plex Mono',monospace",
-                    fontSize:9, padding:"2px 6px", borderRadius:3,
-                    background:`${T.red}20`, color:T.red,
-                    border:`1px solid ${T.red}35`, fontWeight:700
-                  }}>{badgeCount}</span>
-                )}
-              </div>
-            );
-          })}
-        </nav>
-
-        {/* Footer stats */}
-        {!sidebarCollapsed && (
-          <div style={{ padding:"14px 16px", borderTop:`1px solid ${T.border}`, flexShrink:0 }}>
-            <div style={{
-              background:`${T.cyan}08`, border:`1px solid ${T.cyan}20`,
-              borderRadius:8, padding:"12px 14px"
-            }}>
-              <div style={{ fontSize:8, color:T.cyan, fontWeight:700, letterSpacing:"0.16em", marginBottom:8 }}>LIVE METRICS</div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                {[
-                  { l:"COMMITS", v:TOTAL_COMMITS, c:T.cyan },
-                  { l:"ISSUES", v:tickets.length, c:T.lime },
-                  { l:"DEVS", v:devs.length, c:T.violet },
-                  { l:"AT RISK", v:AT_RISK, c:T.red },
-                ].map(m => (
-                  <div key={m.l}>
-                    <div style={{ fontSize:7, color:T.dim, fontWeight:700, letterSpacing:"0.12em" }}>{m.l}</div>
-                    <div style={{ fontSize:16, fontWeight:700, color:m.c, lineHeight:1.2 }}>{m.v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* Collapse toggle */}
-            <button onClick={() => setSidebarCollapsed(true)} style={{
-              width:"100%", marginTop:10,
-              background:"transparent", border:`1px solid ${T.border}`,
-              borderRadius:6, padding:"6px", cursor:"pointer",
-              color:T.dim, fontSize:10, fontFamily:"inherit", letterSpacing:"0.1em"
-            }}>← COLLAPSE</button>
-          </div>
-        )}
-        {sidebarCollapsed && (
-          <div style={{ padding:"10px 0", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"center" }}>
-            <button onClick={() => setSidebarCollapsed(false)} style={{
-              background:"transparent", border:`1px solid ${T.border}`,
-              borderRadius:6, padding:"6px 10px", cursor:"pointer",
-              color:T.dim, fontSize:11, fontFamily:"inherit"
-            }}>→</button>
-          </div>
-        )}
-      </aside>
-
-      {/* MAIN AREA */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
-
-        {/* TOPBAR */}
-        <header style={{
-          height:54, background:`${T.surface}ee`,
-          backdropFilter:"blur(12px)",
-          borderBottom:`1px solid ${T.border}`,
-          display:"flex", alignItems:"center", padding:"0 24px", gap:16, flexShrink:0,
-          boxShadow:`0 1px 0 ${T.borderHi}`
-        }}>
-          {/* Breadcrumb */}
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:9, color:T.dim, fontWeight:700, letterSpacing:"0.14em" }}>DEVIQ</span>
-            <span style={{ color:T.border, fontSize:12 }}>/</span>
-            <span style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, color:T.text }}>
-              {page === "profile" && selDev ? selDev.name : currentPage?.label || "Overview"}
-            </span>
-            {page === "profile" && selDev && (
-              <Tag color={T.violet}>{selDev.role}</Tag>
             )}
           </div>
 
-          {/* Spacer */}
-          <div style={{ flex:1 }}/>
+          {/* Nav */}
+          <nav style={{ flex:1, padding: sidebarCollapsed?"12px 8px":"10px 8px", overflowY:"auto" }}>
+            {!sidebarCollapsed && (
+              <div style={{ fontSize:8, color:T.dim, letterSpacing:"0.22em", padding:"0 6px", marginBottom:8, fontWeight:700 }}>MODULES</div>
+            )}
+            {PAGES.map(p => {
+              const active = page===p.id || (page==="profile"&&p.id==="leaderboard");
+              let badge = 0;
+              if (p.id==="burnout") badge = AT_RISK;
+              if (p.id==="code") badge = fileData.filter(f=>f.risk>=75).length;
+              return (
+                <div key={p.id} className="diq-nav-item" onClick={() => navigate(p.id)}
+                  title={sidebarCollapsed ? p.label : ""}
+                  style={{
+                    display:"flex", alignItems:"center",
+                    gap: sidebarCollapsed?0:8,
+                    justifyContent: sidebarCollapsed?"center":"flex-start",
+                    padding: sidebarCollapsed?"10px 0":"8px 8px",
+                    borderRadius:8, cursor:"pointer", marginBottom:2,
+                    fontSize:11, userSelect:"none",
+                    background: active?`${T.cyan}12`:"transparent",
+                    color: active?T.cyan:T.muted,
+                    borderLeft: active?`2px solid ${T.cyan}`:"2px solid transparent",
+                    fontWeight: active?600:400,
+                  }}>
+                  <span style={{ fontSize:13, flexShrink:0 }}>{p.icon}</span>
+                  {!sidebarCollapsed && <span style={{ flex:1, fontSize:11 }}>{p.label}</span>}
+                  {!sidebarCollapsed && badge>0 && (
+                    <span style={{ fontSize:9, padding:"2px 5px", borderRadius:3, background:`${T.red}20`, color:T.red, border:`1px solid ${T.red}35`, fontWeight:700 }}>{badge}</span>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
 
-          {/* Clock */}
-          <div style={{
-            display:"flex", gap:7, alignItems:"center", padding:"5px 12px",
-            background:`${T.lime}0a`, border:`1px solid ${T.lime}25`, borderRadius:6
-          }}>
-            <Pulse color={T.lime}/>
-            <span style={{
-              fontFamily:"'IBM Plex Mono',monospace",
-              fontSize:11, color:T.lime, fontWeight:600, letterSpacing:"0.06em"
-            }}>{timeStr}</span>
-          </div>
-
-          {/* KPI pills */}
-          <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-            {[
-              { l:"DEVS", v:devs.length, c:T.cyan },
-              { l:"COMMITS", v:TOTAL_COMMITS, c:T.lime },
-              { l:"RISK", v:AT_RISK, c:T.red },
-            ].map(m => (
-              <div key={m.l} style={{
-                display:"flex", flexDirection:"column", alignItems:"center",
-                padding:"4px 10px", borderRadius:6,
-                background:`${m.c}0c`, border:`1px solid ${m.c}25`
-              }}>
-                <span style={{ fontSize:7, color:m.c, fontWeight:700, letterSpacing:"0.14em" }}>{m.l}</span>
-                <span style={{
-                  fontFamily:"'IBM Plex Mono',monospace",
-                  fontSize:14, fontWeight:700, color:m.c, lineHeight:1.1
-                }}>{m.v}</span>
+          {/* Footer */}
+          {!sidebarCollapsed && (
+            <div style={{ padding:"12px 14px", borderTop:`1px solid ${T.border}`, flexShrink:0 }}>
+              <div style={{ background:`${T.cyan}08`, border:`1px solid ${T.cyan}20`, borderRadius:8, padding:"10px 12px" }}>
+                <div style={{ fontSize:7, color:T.cyan, fontWeight:700, letterSpacing:"0.16em", marginBottom:8 }}>LIVE METRICS</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {[{l:"COMMITS",v:TOTAL_COMMITS,c:T.cyan},{l:"ISSUES",v:tickets.length,c:T.lime},{l:"DEVS",v:devs.length,c:T.violet},{l:"RISK",v:AT_RISK,c:T.red}].map(m=>(
+                    <div key={m.l}>
+                      <div style={{ fontSize:7, color:T.dim, fontWeight:700, letterSpacing:"0.1em" }}>{m.l}</div>
+                      <div style={{ fontSize:15, fontWeight:700, color:m.c, lineHeight:1.2 }}>{m.v}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </header>
+              <button onClick={()=>setSidebarCollapsed(true)} style={{
+                width:"100%", marginTop:8,
+                background:"transparent", border:`1px solid ${T.border}`,
+                borderRadius:6, padding:"5px", cursor:"pointer",
+                color:T.dim, fontSize:10, fontFamily:"inherit", letterSpacing:"0.1em"
+              }}>← COLLAPSE</button>
+            </div>
+          )}
+          {sidebarCollapsed && (
+            <div style={{ padding:"8px 0", borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"center" }}>
+              <button onClick={()=>setSidebarCollapsed(false)} style={{
+                background:"transparent", border:`1px solid ${T.border}`,
+                borderRadius:6, padding:"5px 8px", cursor:"pointer",
+                color:T.dim, fontSize:11, fontFamily:"inherit"
+              }}>→</button>
+            </div>
+          )}
+        </aside>
+      )}
 
-        {/* CONTENT */}
-        <main style={{ flex:1, overflow:"auto", padding:"24px 28px" }}>
-          {page === "overview" && <OverviewPage onNav={navigate} data={context} />}
-          {page === "leaderboard" && <LeaderboardPage onSelect={d => { setSelDev(d); setPage("profile"); }} data={context} />}
-          {page === "profile" && <ProfilePage dev={selDev} onBack={() => setPage("leaderboard")} data={context} />}
-          {page === "burnout" && <BurnoutPage data={context} />}
-          {page === "flow" && <FlowPage data={context} />}
-          {page === "code" && <CodeHealthPage data={context} />}
-          {page === "deps" && <DependencyPage data={context} />}
-          {page === "psych" && <PsychPage data={context} />}
-          {page === "team" && <TeamPage data={context} />}
-          {page === "insights" && <InsightsPage data={context} />}
-          {page === "evolution" && <EvolutionPage data={context} />}
-          {page === "research" && <ResearchPage data={context} />}
-          {page === "knowledge" && <KnowledgeGraphPage data={context} />}
-          {page === "darkmatter" && <DarkMatterPage data={context} />}
-          {page === "wcis" && <WCISPage data={context} />}
-          {page === "blockchain" && <BlockchainLedgerPage data={context} />}
-          {page === "zkp" && <ZKPPage data={context} />}
-          {page === "qualityscore" && <AIQualityScoringPage data={context} />}
-          {page === "hiddenwk" && <HiddenWorkPage data={context} />}
-          {page === "jira"     && <JiraAgentPage data={context} />}
-          {page === "slack"    && <SlackPage data={context} />}
+      {/* ── MAIN AREA ─────────────────────────────────── */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
+
+        {/* ── MOBILE TOPBAR ── */}
+        {isMobile && (
+          <header className="diq-mobile-topbar" style={{
+            height:52, background:`${T.surface}f0`,
+            backdropFilter:"blur(14px)",
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex", alignItems:"center",
+            padding:"0 14px", gap:12, flexShrink:0,
+            boxShadow:`0 1px 0 ${T.borderHi}`
+          }}>
+            {/* Hamburger */}
+            <button onClick={()=>setDrawerOpen(true)} style={{
+              background:"transparent", border:`1px solid ${T.border}`,
+              borderRadius:7, color:T.cyan, fontSize:16, cursor:"pointer",
+              width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0
+            }}>☰</button>
+
+            {/* Logo */}
+            <div style={{ display:"flex", alignItems:"center", gap:7, flex:1, minWidth:0 }}>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:900, color:T.text }}>DevIQ</div>
+              <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                <Pulse color={T.lime}/>
+                <span style={{ fontSize:8, color:T.lime, fontWeight:700, letterSpacing:"0.14em" }}>LIVE</span>
+              </div>
+            </div>
+
+            {/* Page title */}
+            <span style={{ fontSize:11, color:T.muted, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:120 }}>
+              {page==="profile"&&selDev ? selDev.name : currentPage?.label}
+            </span>
+
+            {/* Live clock (compact) */}
+            <div style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
+              <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:T.lime, fontWeight:600 }}>
+                {timeStr.slice(0,5)}
+              </span>
+            </div>
+          </header>
+        )}
+
+        {/* ── DESKTOP TOPBAR ── */}
+        {!isMobile && (
+          <header className="diq-desktop-topbar" style={{
+            height:54, background:`${T.surface}ee`,
+            backdropFilter:"blur(12px)",
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex", alignItems:"center",
+            padding:`0 ${isTablet?"16px":"24px"}`, gap:12, flexShrink:0,
+            boxShadow:`0 1px 0 ${T.borderHi}`
+          }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:8, color:T.dim, fontWeight:700, letterSpacing:"0.14em" }}>DEVIQ</span>
+              <span style={{ color:T.border, fontSize:12 }}>/</span>
+              <span style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:T.text }}>
+                {page==="profile"&&selDev ? selDev.name : currentPage?.label || "Overview"}
+              </span>
+              {page==="profile"&&selDev && <Tag color={T.violet}>{selDev.role}</Tag>}
+            </div>
+            <div style={{ flex:1 }}/>
+            <div style={{ display:"flex", gap:7, alignItems:"center", padding:"5px 12px", background:`${T.lime}0a`, border:`1px solid ${T.lime}25`, borderRadius:6 }}>
+              <Pulse color={T.lime}/>
+              <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:T.lime, fontWeight:600, letterSpacing:"0.06em" }}>{timeStr}</span>
+            </div>
+            <div className="diq-topbar-kpis" style={{ display:"flex", gap:6, alignItems:"center" }}>
+              {[{l:"DEVS",v:devs.length,c:T.cyan},{l:"COMMITS",v:TOTAL_COMMITS,c:T.lime},{l:"RISK",v:AT_RISK,c:T.red}].map(m=>(
+                <div key={m.l} style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"4px 10px", borderRadius:6, background:`${m.c}0c`, border:`1px solid ${m.c}25` }}>
+                  <span style={{ fontSize:7, color:m.c, fontWeight:700, letterSpacing:"0.14em" }}>{m.l}</span>
+                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:14, fontWeight:700, color:m.c, lineHeight:1.1 }}>{m.v}</span>
+                </div>
+              ))}
+            </div>
+          </header>
+        )}
+
+        {/* ── PAGE CONTENT ── */}
+        <main className="diq-main-content" style={{
+          flex:1, overflow:"auto",
+          padding: isMobile ? "12px 12px 80px" : isTablet ? "18px 20px" : "24px 28px"
+        }}>
+          {pageContent}
         </main>
       </div>
+
+      {/* ── MOBILE BOTTOM NAV ── */}
+      {isMobile && (
+        <nav className="diq-mobile-nav" style={{ flexDirection:"row" }}>
+          {MOBILE_NAV.map(p => {
+            const active = page===p.id || (page==="profile"&&p.id==="leaderboard");
+            const badge = p.id==="burnout" ? AT_RISK : 0;
+            return (
+              <div key={p.id} onClick={()=>navigate(p.id)} style={{
+                flex:1, display:"flex", flexDirection:"column", alignItems:"center",
+                justifyContent:"center", gap:2, padding:"6px 4px",
+                cursor:"pointer", userSelect:"none",
+                color: active ? T.cyan : T.dim,
+                borderTop: active ? `2px solid ${T.cyan}` : "2px solid transparent",
+                position:"relative"
+              }}>
+                {badge>0 && (
+                  <div style={{
+                    position:"absolute", top:4, right:"calc(50% - 12px)",
+                    width:14, height:14, borderRadius:"50%",
+                    background:T.red, fontSize:8, fontWeight:700,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    color:"#fff", border:`1.5px solid ${T.bg}`
+                  }}>{badge}</div>
+                )}
+                <span style={{ fontSize:17 }}>{p.icon}</span>
+                <span style={{ fontSize:8, fontWeight: active?700:500, letterSpacing:"0.06em" }}>{p.label}</span>
+              </div>
+            );
+          })}
+          {/* "More" button opens drawer */}
+          <div onClick={()=>setDrawerOpen(true)} style={{
+            flex:1, display:"flex", flexDirection:"column", alignItems:"center",
+            justifyContent:"center", gap:2, padding:"6px 4px",
+            cursor:"pointer", color:T.dim
+          }}>
+            <span style={{ fontSize:17 }}>⋯</span>
+            <span style={{ fontSize:8, fontWeight:500, letterSpacing:"0.06em" }}>More</span>
+          </div>
+        </nav>
+      )}
     </div>
   );
 }
